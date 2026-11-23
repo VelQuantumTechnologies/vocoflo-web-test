@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
-import { Mic, Square, RotateCcw, Send, Keyboard } from "lucide-react";
-import type { MicRecordingState } from "@/lib/audio/useMicRecorder";
+import React, { useEffect, useState } from "react";
+import {
+  Mic,
+  MicOff,
+  Square,
+  RotateCcw,
+  Send,
+  Keyboard,
+  Volume2,
+  ShieldAlert,
+} from "lucide-react";
+import type { MicErrorKind, MicRecordingState } from "@/lib/audio/useMicRecorder";
 
 interface MicSpeakingPanelProps {
   recordingState: MicRecordingState;
@@ -12,8 +21,19 @@ interface MicSpeakingPanelProps {
   onStartRecording: () => void;
   onStopRecording: () => void;
   onResetRecording: () => void;
-  onSubmitAudio: (blob: Blob, durationSeconds: number, mimeType: string, runAnalysis: boolean) => void;
+  onSubmitAudio: (
+    blob: Blob,
+    durationSeconds: number,
+    mimeType: string,
+    runAnalysis: boolean
+  ) => void;
   onSubmitTypedFallback: (text: string) => void;
+  onConfirmSpokenWithoutRecording?: (optionalNote?: string) => void;
+  onMicErrorObserved?: (errorKind: MicErrorKind, message: string) => void;
+  secondarySkipAction?: {
+    label: string;
+    onClick: () => void;
+  };
   submitLabel?: string;
   allowSkipAnalysis?: boolean;
   busy?: boolean;
@@ -36,14 +56,24 @@ export function MicSpeakingPanel({
   onResetRecording,
   onSubmitAudio,
   onSubmitTypedFallback,
+  onConfirmSpokenWithoutRecording,
+  onMicErrorObserved,
+  secondarySkipAction,
   submitLabel = "Submit Recording",
   allowSkipAnalysis = true,
   busy = false,
   isGuestMode = false,
 }: MicSpeakingPanelProps) {
-  const [showTyped, setShowTyped] = useState(false);
+  const [altMode, setAltMode] = useState<"none" | "spoken_unrecorded" | "typed">("none");
   const [typedDraft, setTypedDraft] = useState("");
+  const [spokenAloudNote, setSpokenAloudNote] = useState("");
   const [runAnalysis, setRunAnalysis] = useState(true);
+
+  useEffect(() => {
+    if (recordingState.status === "error" && onMicErrorObserved) {
+      onMicErrorObserved(recordingState.errorKind, recordingState.message);
+    }
+  }, [onMicErrorObserved, recordingState]);
 
   if (recordingState.status === "recording") {
     const barPct = Math.max(8, Math.min(100, Math.round(recordingState.level * 100)));
@@ -127,7 +157,7 @@ export function MicSpeakingPanel({
             />
             {isGuestMode
               ? "Run optional simulated speech observation & transcript (Guest Mode — local only)"
-              : "Run optional speech observation & verbatim transcript (speech detection model)"}
+              : "Run optional speech observation & verbatim transcript (VocoFlo speech detection model)"}
           </label>
         ) : null}
 
@@ -154,12 +184,26 @@ export function MicSpeakingPanel({
   return (
     <div className="space-y-3 rounded-2xl border border-emeraldBorder bg-emeraldSurface p-4">
       {recordingState.status === "error" ? (
-        <div className="rounded-xl border border-softCoral/50 bg-coralContainer/70 p-3 text-xs text-coralOnContainer">
-          {recordingState.message}
+        <div
+          data-testid={`mic-error-${recordingState.errorKind}`}
+          className="rounded-xl border border-softCoral/50 bg-coralContainer/70 p-3.5 text-xs text-coralOnContainer"
+        >
+          <div className="flex items-start gap-2.5">
+            {recordingState.errorKind === "mic_missing" ? (
+              <MicOff className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <div>
+              <p className="font-semibold">{recordingState.title}</p>
+              <p className="mt-0.5 leading-relaxed opacity-90">{recordingState.message}</p>
+            </div>
+          </div>
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Single Primary Action: Start Speaking */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <button
           type="button"
           disabled={busy}
@@ -174,28 +218,107 @@ export function MicSpeakingPanel({
           className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full bg-sagePill px-5 py-2.5 text-sm font-semibold text-sageInk transition hover:opacity-90 disabled:opacity-50"
         >
           <Mic className="h-4 w-4" />
-          {audioConsentAuthorized ? "Start Speaking" : "Review Mic Upload Notice & Speak"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowTyped((s) => !s)}
-          disabled={busy}
-          className="inline-flex min-h-[48px] items-center gap-1.5 rounded-full border border-emeraldStrongBorder px-4 py-2 text-xs text-creamInk hover:bg-emeraldRaised"
-        >
-          <Keyboard className="h-4 w-4" />
-          {showTyped ? "Hide Typing" : "Type Instead"}
+          {audioConsentAuthorized ? "Start Speaking" : "Review Mic Notice & Start Speaking"}
         </button>
       </div>
 
-      {showTyped ? (
-        <div className="space-y-2 border-t border-emeraldBorder pt-3">
+      {/* Quiet Secondary Alternatives */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-emeraldBorder/70 pt-2.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          {onConfirmSpokenWithoutRecording ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                setAltMode((m) => (m === "spoken_unrecorded" ? "none" : "spoken_unrecorded"))
+              }
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 transition ${
+                altMode === "spoken_unrecorded"
+                  ? "border-mintAccent bg-emeraldField text-mintAccent"
+                  : "border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
+              }`}
+            >
+              <Volume2 className="h-3.5 w-3.5" />
+              I Spoke Aloud Without Recording
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setAltMode((m) => (m === "typed" ? "none" : "typed"))}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 transition ${
+              altMode === "typed"
+                ? "border-mintAccent bg-emeraldField text-mintAccent"
+                : "border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
+            }`}
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+            {altMode === "typed" ? "Hide Written Note" : "Write Instead (No Audio)"}
+          </button>
+        </div>
+
+        {secondarySkipAction ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={secondarySkipAction.onClick}
+            className="rounded-full px-3 py-1.5 text-xs text-mutedSage underline hover:text-creamInk disabled:opacity-40"
+          >
+            {secondarySkipAction.label}
+          </button>
+        ) : null}
+      </div>
+
+      {altMode === "spoken_unrecorded" && onConfirmSpokenWithoutRecording ? (
+        <div className="space-y-2 rounded-xl border border-emeraldStrongBorder bg-emeraldCanvas/70 p-3">
+          <p className="text-xs font-medium text-creamInk">
+            Confirm you spoke this prompt aloud without recording audio
+          </p>
+          <p className="text-[11px] text-mutedSage">
+            This records that you practiced the speaking attempt aloud without saving an audio
+            recording. Optionally jot down a few words about what you shared so Coco can reply to
+            your topic.
+          </p>
+          <input
+            type="text"
+            value={spokenAloudNote}
+            onChange={(e) => setSpokenAloudNote(e.target.value)}
+            placeholder="Optional: what topic did you speak aloud about?"
+            className="w-full rounded-xl border border-emeraldBorder bg-emeraldSurface px-3 py-2 text-xs text-creamInk"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              onConfirmSpokenWithoutRecording(spokenAloudNote.trim() || undefined);
+              setSpokenAloudNote("");
+              setAltMode("none");
+            }}
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-full border border-mintAccent bg-emeraldField px-4 py-1.5 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised disabled:opacity-40"
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            Confirm Spoken Aloud (Unrecorded)
+          </button>
+        </div>
+      ) : null}
+
+      {altMode === "typed" ? (
+        <div className="space-y-2 rounded-xl border border-emeraldStrongBorder bg-emeraldCanvas/70 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-creamInk">
+              Written Response Fallback
+            </p>
+            <span className="rounded-full border border-warmGold/50 px-2 py-0.5 text-[10px] font-medium text-warmGold">
+              Not a spoken recording
+            </span>
+          </div>
           <textarea
             value={typedDraft}
             onChange={(e) => setTypedDraft(e.target.value)}
             rows={3}
-            placeholder="Share in writing if you prefer not to use the microphone right now…"
-            className="w-full rounded-xl border border-emeraldStrongBorder bg-emeraldCanvas p-3 text-sm text-creamInk placeholder:text-mutedSage/60 focus:border-mintAccent focus:outline-none"
+            placeholder="Share in writing if you are not speaking aloud right now…"
+            className="w-full rounded-xl border border-emeraldStrongBorder bg-emeraldSurface p-3 text-sm text-creamInk placeholder:text-mutedSage/60 focus:border-mintAccent focus:outline-none"
           />
           <button
             type="button"
@@ -205,11 +328,12 @@ export function MicSpeakingPanel({
               if (!text) return;
               onSubmitTypedFallback(text);
               setTypedDraft("");
+              setAltMode("none");
             }}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-mintAccent px-4 py-2 text-xs font-semibold text-mintAccent hover:bg-emeraldField disabled:opacity-40"
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-full border border-mintAccent bg-emeraldField px-4 py-1.5 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised disabled:opacity-40"
           >
             <Send className="h-3.5 w-3.5" />
-            Send Written Response
+            Send Written Response (Typed Only)
           </button>
         </div>
       ) : null}

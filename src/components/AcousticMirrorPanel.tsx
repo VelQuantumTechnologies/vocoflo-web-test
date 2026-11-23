@@ -50,6 +50,25 @@ const EVENT_TYPE_LABELS: Record<SpeechEventType, string> = {
   user_reported_block: "User-reported block",
 };
 
+function formatHumanAnalysisStatus(attempt: SpeechAttempt): string {
+  if (attempt.participationStatus === "spoken_unrecorded") {
+    return "Spoken aloud (no audio recorded)";
+  }
+  if (attempt.analysisStatus === "success") {
+    return "Speech notes ready";
+  }
+  if (attempt.analysisStatus === "fixture") {
+    return "Simulated guest notes";
+  }
+  if (attempt.analysisStatus === "pending") {
+    return "Analysing audio…";
+  }
+  if (attempt.analysisStatus === "failed") {
+    return "Audio recorded (speech notes unavailable)";
+  }
+  return "Audio recorded";
+}
+
 export function AcousticMirrorPanel({
   attempt,
   events,
@@ -84,6 +103,8 @@ export function AcousticMirrorPanel({
     el.play().catch(() => {});
   };
 
+  const isHistorical = attempt.isCurrentSession === false;
+
   return (
     <div className="rounded-2xl border border-emeraldBorder bg-emeraldSurface/90">
       <button
@@ -94,12 +115,23 @@ export function AcousticMirrorPanel({
         <div className="flex items-center gap-2.5">
           <AudioLines className="h-4 w-4 text-mintAccent" />
           <div>
-            <p className="text-xs font-semibold text-creamInk">
-              {titleOverride || "Optional Acoustic Mirror (Inspect & Correct)"}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-semibold text-creamInk">
+                {titleOverride || "Optional Acoustic Mirror (Inspect & Correct)"}
+              </p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  isHistorical
+                    ? "border border-emeraldStrongBorder text-mutedSage"
+                    : "bg-emeraldField text-mintAccent"
+                }`}
+              >
+                {isHistorical ? "Earlier Session" : "Current Session"}
+              </span>
+            </div>
             <p className="text-[11px] text-mutedSage">
-              {attemptEvents.length} tentative moment(s) • Status: {attempt.analysisStatus} •{" "}
-              {attempt.durationSeconds.toFixed(1)}s
+              {attemptEvents.length} tentative moment(s) • {formatHumanAnalysisStatus(attempt)}
+              {attempt.durationSeconds > 0 ? ` • ${attempt.durationSeconds.toFixed(1)}s` : ""}
             </p>
           </div>
         </div>
@@ -140,7 +172,9 @@ export function AcousticMirrorPanel({
             </div>
           ) : (
             <p className="text-xs italic text-mutedSage">
-              No local audio clip in this browser session (loaded from saved history or typed entry).
+              {isHistorical
+                ? "Saved from an earlier session (raw audio stays in the browser session where it was recorded)."
+                : "Spoken aloud without a recorded audio file in this session."}
             </p>
           )}
 

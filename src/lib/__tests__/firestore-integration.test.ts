@@ -459,7 +459,7 @@ describe("Firestore schema & firestore.rules alignment", () => {
       speechTermMode: "stammering",
     });
     expect(opening.hasGenuineMemory).toBe(true);
-    expect(opening.text).toContain("Team standups");
+    expect(opening.text.toLowerCase()).toContain("team standups");
   });
 
   it("covers P01 lesson_progress, transfer_plans, and full context loading", async () => {

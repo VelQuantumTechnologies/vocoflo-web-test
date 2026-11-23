@@ -264,6 +264,9 @@ export function buildSpeechAttemptCreatePayload<TTime>(
   if (attempt.selfReportAvoidanceNote?.trim()) {
     payload.selfReportAvoidanceNote = attempt.selfReportAvoidanceNote.trim().slice(0, 500);
   }
+  if (attempt.selfReportParticipationNote?.trim()) {
+    payload.selfReportParticipationNote = attempt.selfReportParticipationNote.trim().slice(0, 500);
+  }
   return payload;
 }
 

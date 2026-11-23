@@ -17,6 +17,7 @@ import type {
   CoachMemoryItem,
   LearnerProfile,
   LessonProgress,
+  SpeakingParticipationStatus,
   SpeechAttempt,
   SpeechEvent,
   SpeechEventReviewState,
@@ -201,6 +202,17 @@ export async function loadLearnerContext(uid: string): Promise<{
   const attempts: SpeechAttempt[] = attSnap.docs
     .map((d) => {
       const x = d.data();
+      const participationNote = x.selfReportParticipationNote ?? null;
+      const inferredStatus: SpeakingParticipationStatus | undefined =
+        participationNote === "spoken_unrecorded"
+          ? "spoken_unrecorded"
+          : participationNote === "skipped"
+            ? "skipped"
+            : participationNote === "mic_unavailable"
+              ? "mic_unavailable"
+              : Boolean(x.hasLocalAudio) || Number(x.durationSeconds || 0) > 0
+                ? "recorded"
+                : undefined;
       return {
         id: d.id,
         userId: String(x.userId || uid),
@@ -218,6 +230,9 @@ export async function loadLearnerContext(uid: string): Promise<{
         analysisError: x.analysisError ?? null,
         selfReportEffort: typeof x.selfReportEffort === "number" ? x.selfReportEffort : null,
         selfReportAvoidanceNote: x.selfReportAvoidanceNote ?? null,
+        selfReportParticipationNote: participationNote,
+        participationStatus: inferredStatus,
+        isCurrentSession: false,
         createdAtIso: timestampToIso(x.createdAt),
       };
     })

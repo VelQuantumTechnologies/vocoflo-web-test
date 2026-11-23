@@ -172,10 +172,14 @@ function extractLineValue(prompt: string, prefix: string): string | null {
 
 function extractLearnerInput(prompt: string): string | null {
   const patterns = [
+    /Learner's latest question:\s*"([^"]+)"/i,
+    /What the learner actually shared:\s*"([^"]+)"/i,
+    /Learner's own words:\s*"([^"]+)"/i,
     /Learner's speech\/text:\s*"([^"]+)"/i,
     /Learner's words:\s*"([^"]+)"/i,
     /Learner's reply:\s*"([^"]+)"/i,
     /Learner's latest reply \(text\):\s*(.+)/i,
+    /familiar label or rule that sometimes shows up for them:\s*"([^"]+)"/i,
     /Learner's familiar label:\s*"([^"]+)"/i,
     /Learner question:\s*"([^"]+)"/i,
   ];
@@ -184,6 +188,23 @@ function extractLearnerInput(prompt: string): string | null {
     if (m?.[1]?.trim()) return m[1].trim();
   }
   return null;
+}
+
+function extractPriorLearnerTurnsFromQaPrompt(prompt: string): string[] {
+  const blockMatch =
+    /Recent Ask Coco conversation history[\s\S]*?:\n([\s\S]*?)\n\nLearner's latest question:/i.exec(
+      prompt
+    );
+  if (!blockMatch?.[1]) return [];
+  const lines = blockMatch[1].split("\n");
+  const turns: string[] = [];
+  for (const line of lines) {
+    const m = /^Learner:\s*"(.+)"$/i.exec(line.trim());
+    if (m?.[1]) {
+      turns.push(m[1].trim());
+    }
+  }
+  return turns;
 }
 
 function simulateCoachGenerate(
@@ -197,20 +218,63 @@ function simulateCoachGenerate(
   const termVerb = usesStuttering ? "stutter" : "stammer";
 
   if (purpose === "coco_qa") {
-    const stage = extractLineValue(prompt, "Current stage:") || "this step";
+    const stage =
+      extractLineValue(prompt, "Current location:") ||
+      extractLineValue(prompt, "Current stage:") ||
+      "this step";
     const completed = extractLineValue(prompt, "Completed steps so far:") || "the steps so far";
     const question = learnerInput || "this part of the session";
+    const qLower = question.toLowerCase();
+    const priorLearnerTurns = extractPriorLearnerTurnsFromQaPrompt(prompt);
+    const priorJoined = priorLearnerTurns.join(" ").toLowerCase();
 
-    if (question.toLowerCase().includes("beat 5") || question.toLowerCase().includes("coming next")) {
-      return `[Simulated Coco — Guest Mode] Right now we're focused on ${stage}. I only look at what you've explored so far (${completed}) so nothing ahead gets spoiled—we'll walk into the next step together when you're ready.`;
+    // Multi-turn continuity check (including the café / saying-my-name two-question scenario)
+    const mentionedCafeBefore =
+      priorJoined.includes("cafe") ||
+      priorJoined.includes("café") ||
+      priorJoined.includes("coffee");
+    const mentionedNameBefore =
+      priorJoined.includes("saying my name") ||
+      priorJoined.includes("say my name") ||
+      priorJoined.includes("my name");
+
+    if (qLower.includes("beat 5") || qLower.includes("coming next") || qLower.includes("spoil")) {
+      return `[Simulated Coco — Guest Mode] Right now we're focused on ${stage}. I only draw from what you've reached so far (${completed}) so upcoming steps stay unspoiled until you get there.`;
     }
-    if (question.toLowerCase().includes("verdict") || question.toLowerCase().includes("event")) {
+
+    if (
+      priorLearnerTurns.length > 0 &&
+      (mentionedCafeBefore ||
+        mentionedNameBefore ||
+        qLower.includes("earlier") ||
+        qLower.includes("just said") ||
+        qLower.includes("just mentioned") ||
+        qLower.includes("that situation") ||
+        qLower.includes("that moment") ||
+        qLower.includes("cafe") ||
+        qLower.includes("café") ||
+        qLower.includes("my name"))
+    ) {
+      if (mentionedCafeBefore && mentionedNameBefore) {
+        return `[Simulated Coco — Guest Mode] You mentioned earlier that when you're at a café and asked for your name, saying your name can catch or feel high-stakes. In that café moment, catching on your name is just one specific speaking event at the counter—not a verdict about your capability or who you are as a speaker.`;
+      }
+      const lastTurn = priorLearnerTurns[priorLearnerTurns.length - 1];
+      return `[Simulated Coco — Guest Mode] Connecting this to what you shared a moment ago ("${lastTurn.slice(0, 80)}"), we can treat that moment in ${stage} as one specific event rather than a wider verdict about you.`;
+    }
+
+    if (
+      (qLower.includes("cafe") || qLower.includes("café") || qLower.includes("coffee")) &&
+      qLower.includes("name")
+    ) {
+      return `[Simulated Coco — Guest Mode] When you're ordering at a café and saying your name catches, that single sticky moment at the counter can quickly feel heavy because your name feels personal. Here in ${stage}, we notice that catching on your name at the café is one specific speaking event, not a broader verdict about you.`;
+    }
+    if (qLower.includes("verdict") || qLower.includes("event")) {
       return `[Simulated Coco — Guest Mode] Separating a single sticky word from a wider verdict about yourself keeps one moment in proportion. You can notice what happened on that word without turning it into a rule about who you are as a speaker.`;
     }
-    if (question.toLowerCase().includes("standard")) {
-      return `[Simulated Coco — Guest Mode] Loosening a harsh identity label doesn't mean lowering your care or standards—it just means you don't have to defend a whole identity every time a word catches.`;
+    if (qLower.includes("standard")) {
+      return `[Simulated Coco — Guest Mode] Loosening a harsh identity label doesn't mean lowering your care or standards—it just means you keep your standards in your preparation so you don't have to defend a whole identity in every sentence.`;
     }
-    return `[Simulated Coco — Guest Mode] Here in ${stage}, you're doing real exploratory work based on ${completed}. Keep noticing what actually felt true for you on "${question.slice(0, 70)}" without needing to judge it.`;
+    return `[Simulated Coco — Guest Mode] Here in ${stage}, you're doing grounded exploratory work based on ${completed}. Keep noticing what actually felt true for you on "${question.slice(0, 70)}" without needing to judge it.`;
   }
 
   if (purpose === "responsive_roleplay") {
@@ -226,28 +290,28 @@ function simulateCoachGenerate(
     const goals = extractLineValue(prompt, "- Learner goals:") || "speaking with less pressure";
     const situations = extractLineValue(prompt, "- Important situations:") || "everyday conversations";
     const shift = extractLineValue(prompt, "- Shift experiment reflection:") || "trying a gentle focus shift";
-    return `[Simulated Coco — Guest Mode] Thank you for walking through your Check-In across these speaking conditions around ${situations} and your goal of ${goals}. Any tentative speech moments marked on the timeline stay optional and correctable by you, and smooth-sounding audio never erases internal effort—including what you noticed during ${shift}. A natural next step is Module P01, Your Identity With Your Speech, where we gently separate a single speaking moment from a wider verdict about yourself.`;
+    return `[Simulated Coco — Guest Mode] Thank you for walking through your Check-In around ${situations} and your focus on ${goals}. Any tentative speech moments marked on the timeline stay optional and correctable by you, and smooth-sounding audio never erases internal effort—including what you noticed during ${shift}. A natural next step is Module 1, Your Identity With Your Speech, where we gently separate a single speaking moment from a wider verdict about yourself.`;
   }
 
   if (attemptOrSessionId === "p01_beat_1_mirror") {
-    if (prompt.toLowerCase().includes('selected "often"')) {
-      return `[Simulated Coco — Guest Mode] Thank you for naming that honestly—when one difficult word shows up often, it can quickly feel like a statement about all of you. Let's keep that in mind gently as you speak in Beat 2.`;
+    if (prompt.toLowerCase().includes("selection: often")) {
+      return `[Simulated Coco — Guest Mode] Thank you for naming that honestly—when one difficult word shows up often, it can quickly feel like a statement about all of you. Before we explore today's core idea, let's start by speaking naturally in Beat 2.`;
     }
-    if (prompt.toLowerCase().includes('selected "skip"')) {
+    if (prompt.toLowerCase().includes("selection: skip")) {
       return `[Simulated Coco — Guest Mode] Totally fine to skip that question and start simply. Whenever you're ready, Beat 2 invites you to speak naturally about something you enjoy outside work.`;
     }
     const notePart = learnerInput ? ` about "${learnerInput.slice(0, 70)}"` : "";
-    return `[Simulated Coco — Guest Mode] I hear you${notePart}. Notice how quickly a single moment can start to feel bigger than it is—before we unpack that idea, let's start with an ordinary speaking moment in Beat 2.`;
+    return `[Simulated Coco — Guest Mode] I hear you${notePart}. Before we look at today's concept in Beat 3, let's start with a relaxed baseline speaking turn in Beat 2.`;
   }
 
   if (attemptOrSessionId === "p01_beat_3_label") {
     const label = learnerInput || "that familiar rule";
-    return `[Simulated Coco — Guest Mode] Wearing "${label}" like heavy armour makes every sentence feel high-stakes, whereas treating it like a removable name badge leaves room for your actual voice. Which feels more workable to set down for a moment today?`;
+    return `[Simulated Coco — Guest Mode] Carrying "${label}" like heavy armour makes every sentence feel high-stakes, whereas setting that name badge on the table for one conversation leaves room for your actual message.`;
   }
 
   if (attemptOrSessionId === "p01_beat_4_followup") {
     const reply = learnerInput ? ` "${learnerInput.slice(0, 70)}"` : "";
-    return `[Simulated Coco — Guest Mode] Thank you for sharing${reply}—staying with what you wanted your listener to understand is the heart of P01.`;
+    return `[Simulated Coco — Guest Mode] Thank you for sharing${reply}—staying with what you wanted your listener to understand is the heart of this lesson.`;
   }
 
   if (attemptOrSessionId.startsWith("att_p01_a2_")) {
@@ -261,7 +325,7 @@ function simulateCoachGenerate(
     const shared = learnerInput
       ? `hearing about "${learnerInput.slice(0, 75)}"`
       : "hearing what you enjoy outside work";
-    return `[Simulated Coco — Guest Mode] Thank you for ${shared}—it's clear why that matters to you. Let's carry this real moment into Beat 3 to explore one simple idea together.`;
+    return `[Simulated Coco — Guest Mode] Thank you for ${shared}—it's clear why that matters to you. Whenever you're ready, let's move into Beat 3 to explore today's core idea together.`;
   }
 
   // Default: Check-In Samples 1-3 listening response
@@ -291,7 +355,7 @@ export async function simulateGuestGatewayCall(params: {
       outputTokens: null,
       latencyMs: 0,
       errorMessage:
-        "Guest Review Mode: live Sulafat/Orus TTS is disabled (no unauthenticated AI calls). Pre-generated prompts play audio and readable simulated text stays visible.",
+        "Guest Review Mode: live TTS is disabled (no unauthenticated AI calls). Pre-generated prompts play audio and readable simulated text stays visible.",
     };
   }
 

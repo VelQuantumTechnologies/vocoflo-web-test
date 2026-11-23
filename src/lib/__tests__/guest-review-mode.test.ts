@@ -194,7 +194,7 @@ describe("Guest Review Mode", () => {
     });
     expect(debrief.ok).toBe(true);
     expect(debrief.text).toContain("[Simulated Coco — Guest Mode]");
-    expect(debrief.text).toContain("Team standups");
+    expect(debrief.text.toLowerCase()).toContain("team standups");
 
     // 5. P01 Beat 1 Mirror opening + reply
     const p01Opening = buildP01MirrorOpening({

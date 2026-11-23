@@ -1,21 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
-import { MessageCircleQuestion, Send, X } from "lucide-react";
+import { MessageCircleQuestion, Play, Send, X } from "lucide-react";
 import type { CoachVoiceState } from "@/lib/audio/useCoachVoice";
 import type { JourneyScope, VoiceRole } from "@/types/vocoflo";
-import { CocoAudioPanel } from "./CocoAudioPanel";
+import { CocoAudioPanel, CocoThinkingCard } from "./CocoAudioPanel";
 
 export interface QaExchange {
   id: string;
   question: string;
-  answer: string;
+  answer: string | null;
+  status: "thinking" | "completed" | "error";
   timestampIso: string;
 }
 
 interface AskCocoDrawerProps {
   open: boolean;
   onClose: () => void;
+  onCloseAndResumeLesson?: () => void;
+  hasInterruptedLessonAudio?: boolean;
   scope: JourneyScope;
   micRecordingActive: boolean;
   exchanges: QaExchange[];
@@ -29,7 +32,7 @@ interface AskCocoDrawerProps {
 }
 
 const SUGGESTED_QUESTIONS = [
-  "Why does P01 separate an event from a verdict?",
+  "Why does separating an event from a verdict help?",
   "Does loosening identity mean lowering my standards?",
   "How does what I shared in Check-In connect here?",
 ];
@@ -37,6 +40,8 @@ const SUGGESTED_QUESTIONS = [
 export function AskCocoDrawer({
   open,
   onClose,
+  onCloseAndResumeLesson,
+  hasInterruptedLessonAudio = false,
   scope,
   micRecordingActive,
   exchanges,
@@ -73,30 +78,42 @@ export function AskCocoDrawer({
             <div>
               <h2 className="font-display text-base font-semibold text-creamInk">Ask Coco</h2>
               <p className="text-[11px] text-mutedSage">
-                Journey-scoped • {scope.currentStageLabel}
+                Scoped to your current step • {scope.currentStageLabel}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Ask Coco"
-            className="rounded-full p-1.5 text-mutedSage hover:bg-emeraldRaised hover:text-creamInk"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {hasInterruptedLessonAudio && onCloseAndResumeLesson ? (
+              <button
+                type="button"
+                onClick={onCloseAndResumeLesson}
+                className="inline-flex items-center gap-1.5 rounded-full border border-mintAccent/70 bg-emeraldField px-3 py-1.5 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised"
+              >
+                <Play className="h-3 w-3" />
+                Resume Lesson
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close Ask Coco"
+              className="rounded-full p-1.5 text-mutedSage hover:bg-emeraldRaised hover:text-creamInk"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <div className="rounded-xl border border-emeraldBorder bg-emeraldSurface p-3 text-xs text-mutedSage">
             {isGuestMode
-              ? "Guest Review Mode: Coco answers are clearly labeled simulations scoped to your current guest progress (no live AI calls)."
-              : "Coco answers from what you have actually completed so far and your shared Check-In memories—without spoiling unreached steps."}
+              ? "Guest Review Mode: Coco answers are clearly labeled simulations scoped to your current guest progress and conversation turns."
+              : "Coco remembers your recent questions in this conversation and answers from the steps you have reached so far—without spoiling upcoming material."}
           </div>
 
           {micRecordingActive ? (
             <div className="rounded-xl border border-warmGold/50 bg-emeraldRaised p-3 text-xs text-warmGold">
-              Finish or stop your active microphone recording before asking Coco a voice question.
+              Finish or stop your active microphone recording before asking Coco a question.
             </div>
           ) : null}
 
@@ -122,22 +139,33 @@ export function AskCocoDrawer({
 
           <div className="space-y-4">
             {exchanges.map((ex) => (
-              <div key={ex.id} className="space-y-2">
-                <div className="ml-6 rounded-2xl border border-emeraldStrongBorder bg-emeraldField px-4 py-2.5 text-sm text-creamInk">
+              <div key={ex.id} className="space-y-2.5">
+                <div
+                  data-testid="ask-coco-learner-message"
+                  className="ml-6 rounded-2xl border border-emeraldStrongBorder bg-emeraldField px-4 py-2.5 text-sm text-creamInk"
+                >
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-mintAccent">
                     You asked
                   </p>
                   <p className="mt-0.5">{ex.question}</p>
                 </div>
-                <CocoAudioPanel
-                  title="Coco's Answer"
-                  badge={isGuestMode ? "Simulated (Guest Mode)" : undefined}
-                  text={ex.answer}
-                  role="COCO"
-                  voiceState={voiceState}
-                  onPlay={onPlayAudio}
-                  onPause={onPauseAudio}
-                />
+
+                {ex.status === "thinking" ? (
+                  <CocoThinkingCard
+                    label="Coco is thinking…"
+                    detail="Connecting your question to this conversation and your current step."
+                  />
+                ) : ex.answer ? (
+                  <CocoAudioPanel
+                    title="Coco's Answer"
+                    badge={isGuestMode ? "Simulated (Guest Mode)" : undefined}
+                    text={ex.answer}
+                    role="COCO"
+                    voiceState={voiceState}
+                    onPlay={onPlayAudio}
+                    onPause={onPauseAudio}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
@@ -165,7 +193,7 @@ export function AskCocoDrawer({
               className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-sagePill px-4 py-2 text-xs font-semibold text-sageInk hover:opacity-90 disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" />
-              {busy ? "…" : "Ask"}
+              {busy ? "Thinking…" : "Ask"}
             </button>
           </div>
         </form>

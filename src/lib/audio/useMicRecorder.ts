@@ -7,6 +7,8 @@ import {
   pickSupportedAudioMimeType,
 } from "./recorder";
 
+export type MicErrorKind = "mic_missing" | "mic_permission_denied" | "mic_unavailable";
+
 export type MicRecordingState =
   | { status: "idle" }
   | { status: "recording"; elapsedSeconds: number; level: number }
@@ -19,7 +21,63 @@ export type MicRecordingState =
       isSilent: boolean;
       warning: string | null;
     }
-  | { status: "error"; message: string };
+  | {
+      status: "error";
+      errorKind: MicErrorKind;
+      title: string;
+      message: string;
+    };
+
+export function classifyMicrophoneError(err: unknown): {
+  errorKind: MicErrorKind;
+  title: string;
+  message: string;
+} {
+  const errName =
+    err && typeof err === "object" && "name" in err ? String((err as { name?: unknown }).name || "") : "";
+  const errMsg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : "";
+  const combined = `${errName} ${errMsg}`.toLowerCase();
+
+  if (
+    errName === "NotFoundError" ||
+    errName === "DevicesNotFoundError" ||
+    errName === "OverconstrainedError" ||
+    /not found|no device|requested device|no audio input|no microphone/i.test(combined)
+  ) {
+    return {
+      errorKind: "mic_missing",
+      title: "No Microphone Detected",
+      message:
+        "No microphone or audio input device was found on this computer. Connect a microphone or headset and try again, or let Coco know below if you spoke the prompt aloud without recording.",
+    };
+  }
+
+  if (
+    errName === "NotAllowedError" ||
+    errName === "PermissionDeniedError" ||
+    errName === "SecurityError" ||
+    /permission|denied|not allowed|blocked|dismissed/i.test(combined)
+  ) {
+    return {
+      errorKind: "mic_permission_denied",
+      title: "Microphone Permission Denied",
+      message:
+        "Microphone access is blocked in your browser for this page. Allow microphone access in your browser's site permissions and try again, or choose an option below.",
+    };
+  }
+
+  return {
+    errorKind: "mic_unavailable",
+    title: "Microphone Unavailable",
+    message:
+      "Your microphone could not be started (it may be in use by another application). Check your audio input settings and try again, or choose an option below.",
+  };
+}
 
 export function useMicRecorder(onLog?: (msg: string, isError?: boolean) => void) {
   const [state, setState] = useState<MicRecordingState>({ status: "idle" });
@@ -86,7 +144,10 @@ export function useMicRecorder(onLog?: (msg: string, isError?: boolean) => void)
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setState({
         status: "error",
-        message: "Browser microphone capture (MediaRecorder / getUserMedia) is unavailable here.",
+        errorKind: "mic_unavailable",
+        title: "Microphone Capture Not Supported",
+        message:
+          "Browser microphone capture is unavailable in this environment. You can speak the exercise aloud without recording or write a note below.",
       });
       return;
     }
@@ -141,6 +202,8 @@ export function useMicRecorder(onLog?: (msg: string, isError?: boolean) => void)
         if (blob.size === 0) {
           setState({
             status: "error",
+            errorKind: "mic_unavailable",
+            title: "No Audio Captured",
             message: "No audio bytes were captured. Check your microphone input and try again.",
           });
           return;
@@ -155,10 +218,10 @@ export function useMicRecorder(onLog?: (msg: string, isError?: boolean) => void)
         let warning: string | null = null;
         if (signal?.isEffectivelySilent) {
           warning =
-            "Recording appears quiet/silent (RMS below threshold). You can re-record or check your mic input.";
+            "Recording appears very quiet or silent. You can record again or check your microphone input.";
         } else if (blob.size > MAX_WEB_AUDIO_UPLOAD_BYTES) {
           warning =
-            "Recording exceeds the 2.4 MB browser upload target for the staging proxy; try a shorter clip (~20–60s).";
+            "Recording exceeds the 2.4 MB upload limit; try a shorter clip (around 20–60 seconds).";
         }
 
         const blobUrl = URL.createObjectURL(blob);
@@ -201,14 +264,13 @@ export function useMicRecorder(onLog?: (msg: string, isError?: boolean) => void)
       }, 150);
     } catch (err) {
       cleanupStreams();
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Microphone permission was denied or no mic device was found.";
-      onLog?.(`Mic error: ${msg}`, true);
+      const classified = classifyMicrophoneError(err);
+      onLog?.(`Mic error (${classified.errorKind}): ${classified.message}`, true);
       setState({
         status: "error",
-        message: `${msg} You can grant mic permission or use the typed fallback below.`,
+        errorKind: classified.errorKind,
+        title: classified.title,
+        message: classified.message,
       });
     }
   }, [cleanupStreams, onLog]);

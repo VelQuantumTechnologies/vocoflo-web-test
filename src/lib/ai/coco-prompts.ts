@@ -1,6 +1,7 @@
 import p01Content from "@/content/p01.json";
 import type {
   CoachMemoryItem,
+  ConversationTurn,
   JourneyScope,
   LearnerProfile,
   P01BeatId,
@@ -68,6 +69,22 @@ export const CHECK_IN_CONTEXT_CUE =
 export const CHECK_IN_PARTNER_OPENER =
   "Hi! Good to catch up with you. How has your week been going, and what have you been spending time on?";
 
+/**
+ * Beat 2 baseline speaking prompt — occurs BEFORE Beat 3's Event-versus-Verdict teaching.
+ */
+export const P01_BEAT_2_SPEAK_FIRST_NARRATION =
+  "Let us try a small speaking experience. Tell me about something you enjoy outside work. Speak in your usual way; about 45 seconds is enough. A shorter attempt is fine. Record only when you choose.";
+
+/**
+ * Shortened, focused Beat 3 teaching that removes repetitive middle paragraphs while
+ * preserving the Name-Badge metaphor and the strong meeting introduction example.
+ */
+export const P01_BEAT_3_CONCISE_TEACHING = [
+  "Think of a name badge that has become a suit of armour. It helped people recognise you, but now every movement has to fit inside it. You can put the badge on the table for one conversation while your experience and values remain available.",
+  "Imagine introducing yourself at a meeting. A speaking event happens: I repeated part of my name. An interpretation might be: They must think I am incapable. A wider verdict might follow: I am a poor speaker. Notice that these are three different things. The event happened. The interpretation is a guess about other people. The verdict stretches one moment into a statement about who you are.",
+  "Now consider the opposite rule: I must always sound confident. You can value clear communication without requiring every attempt to protect an impressive identity. Keep the standard useful in preparation; give your message room during the conversation.",
+].join("\n\n");
+
 export function checkInShiftCue(termMode: SpeechTermMode): string {
   const verb = termMode === "stuttering" ? "stutter" : "stammer";
   return `Before we wrap up this check-in, let's try one gentle experiment… Pick one short thing from earlier and say it with just one purpose: letting your listener understand your point, even if you ${verb} on the way. Notice afterwards whether anything felt slightly lighter.`;
@@ -124,6 +141,131 @@ export function sanitizeCocoOutput(raw: string | null | undefined): string {
     .trim()
     .replace(/^"|"$/g, "")
     .trim();
+}
+
+function stripMemoryPrefix(raw: string | undefined): string {
+  if (!raw) return "";
+  return raw
+    .replace(/^Important speaking situations\s*:\s*/i, "")
+    .replace(/^Goal\s*:\s*/i, "")
+    .replace(/^Completed\s+/i, "")
+    .trim();
+}
+
+function convertFirstPersonToSecondPerson(phrase: string): string {
+  return phrase
+    .replace(/\bmyself\b/gi, "yourself")
+    .replace(/\bmy\b/gi, "your")
+    .replace(/\bI'm\b/g, "you're")
+    .replace(/\bI am\b/gi, "you are")
+    .replace(/\bI\b/g, "you");
+}
+
+/**
+ * Converts a raw stored situation entry (e.g. "Work meetings & team updates",
+ * "Ordering at cafes / shops", "Introducing myself") into natural conversational phrasing.
+ */
+export function humanizeSituationPhrase(raw: string | undefined): string | null {
+  const stripped = stripMemoryPrefix(raw);
+  if (!stripped) return null;
+  const first = stripped.split(/[,;\n]/)[0]?.trim().replace(/[.]+$/, "") || "";
+  if (first.length < 3) return null;
+
+  let natural = first
+    .replace(/\s*\/\s*/g, " or ")
+    .replace(/\s*&\s*/g, " and ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  natural = convertFirstPersonToSecondPerson(natural);
+  natural = natural.charAt(0).toLowerCase() + natural.slice(1);
+  return natural.slice(0, 95);
+}
+
+const IMPERATIVE_TO_GERUND: Array<[RegExp, string]> = [
+  [/^speak\b/i, "speaking"],
+  [/^stay\b/i, "staying"],
+  [/^participate\b/i, "participating"],
+  [/^understand\b/i, "understanding"],
+  [/^introduce\b/i, "introducing"],
+  [/^order\b/i, "ordering"],
+  [/^say\b/i, "saying"],
+  [/^share\b/i, "sharing"],
+  [/^ask\b/i, "asking"],
+  [/^feel\b/i, "feeling"],
+  [/^keep\b/i, "keeping"],
+  [/^be\b/i, "being"],
+  [/^have\b/i, "having"],
+  [/^reduce\b/i, "reducing"],
+  [/^stop\b/i, "stopping"],
+  [/^build\b/i, "building"],
+  [/^handle\b/i, "handling"],
+];
+
+/**
+ * Converts a raw stored goal entry (e.g. "Speak with less tension and self-monitoring",
+ * "Stay with my message even if a word catches") into natural conversational phrasing
+ * ("speaking with less tension and self-monitoring", "staying with your message even if a word catches").
+ */
+export function humanizeGoalPhrase(raw: string | undefined): string | null {
+  const stripped = stripMemoryPrefix(raw);
+  if (!stripped) return null;
+  const first = stripped.split(/[,;\n]/)[0]?.trim().replace(/[.]+$/, "") || "";
+  if (first.length < 3) return null;
+
+  let natural = first
+    .replace(/^to\s+/i, "")
+    .replace(/^wanting\s+to\s+/i, "")
+    .replace(/^i\s+want\s+to\s+/i, "")
+    .replace(/\s*\/\s*/g, " or ")
+    .replace(/\s*&\s*/g, " and ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  for (const [pattern, gerund] of IMPERATIVE_TO_GERUND) {
+    if (pattern.test(natural)) {
+      natural = natural.replace(pattern, gerund);
+      break;
+    }
+  }
+
+  natural = convertFirstPersonToSecondPerson(natural);
+  natural = natural.charAt(0).toLowerCase() + natural.slice(1);
+  return natural.slice(0, 110);
+}
+
+/**
+ * Formats recent current-conversation turns in strict chronological order (oldest -> newest)
+ * with explicit Learner / Coco roles.
+ */
+export function formatConversationHistory(
+  turns: ConversationTurn[] | undefined,
+  maxTurns = 10
+): string {
+  if (!turns || turns.length === 0) {
+    return "None in this conversation yet.";
+  }
+  const recent = turns.slice(-maxTurns);
+  return recent
+    .map((t) => `${t.role === "learner" ? "Learner" : "Coco"}: "${t.text.trim()}"`)
+    .join("\n");
+}
+
+export function isVerifiedSpokenAttempt(attempt: SpeechAttempt): boolean {
+  if (
+    attempt.participationStatus === "typed_only" ||
+    attempt.participationStatus === "skipped" ||
+    attempt.participationStatus === "mic_unavailable"
+  ) {
+    return false;
+  }
+  if (
+    attempt.participationStatus === "recorded" ||
+    attempt.participationStatus === "spoken_unrecorded"
+  ) {
+    return true;
+  }
+  return Boolean(attempt.hasLocalAudio || attempt.durationSeconds > 0);
 }
 
 export function buildSpeechAnalysisPrompt(
@@ -250,8 +392,8 @@ export function buildCheckInDebriefPrompt(params: {
   shiftNote: string;
   speechTermMode: SpeechTermMode;
 }): string {
-  const checkInAttempts = params.attempts.filter((a) =>
-    a.sourceContext.startsWith("check_in_")
+  const checkInAttempts = params.attempts.filter(
+    (a) => a.sourceContext.startsWith("check_in_") && isVerifiedSpokenAttempt(a)
   );
   const conditionLines =
     checkInAttempts.length > 0
@@ -261,12 +403,19 @@ export function buildCheckInDebriefPrompt(params: {
               (e) => e.attemptId === a.id && e.reviewState !== "dismissed"
             );
             const effortLabel = a.selfReportEffort ? `${a.selfReportEffort}/5` : "skipped/unknown";
-            return `- ${a.activityOrSectionId} (${a.sourceContext}, ${a.durationSeconds.toFixed(1)}s, status=${a.analysisStatus}, tentativeMoments=${evts.length}, selfEffort=${effortLabel})${
+            return `- ${a.activityOrSectionId} (${a.sourceContext}, ${a.durationSeconds.toFixed(1)}s, tentativeMoments=${evts.length}, selfEffort=${effortLabel})${
               a.disfluentTranscript ? ` transcript="${a.disfluentTranscript.slice(0, 220)}"` : ""
             }`;
           })
           .join("\n")
-      : "- No audio samples recorded yet (respect skipped/typed path).";
+      : "- No spoken audio samples recorded yet (respect skipped or written path).";
+
+  const naturalGoals = params.goals
+    .map((g) => humanizeGoalPhrase(g))
+    .filter((g): g is string => Boolean(g));
+  const naturalSituations = params.situations
+    .map((s) => humanizeSituationPhrase(s))
+    .filter((s): s is string => Boolean(s));
 
   return `${COCO_SYSTEM_INSTRUCTION}
 
@@ -279,19 +428,19 @@ ${CORE_GUARDRAILS}
 Provide a grounded, calm 4-5 sentence check-in debrief after the learner's Free Check-In.
 
 Learner context:
-- Learner goals: ${params.goals.join(", ") || "Not specified"}
-- Important situations: ${params.situations.join(", ") || "Not specified"}
+- Learner goals: ${naturalGoals.join(", ") || "Not specified"}
+- Important situations: ${naturalSituations.join(", ") || "Not specified"}
 - Shift experiment reflection: ${params.shiftNote || "None shared"}
 
 Per-condition sample evidence (ONLY cite samples actually recorded/analysed below; treat skipped self-reports as unknown, never zero):
 ${conditionLines}
 
 Strict rules:
-1. Ground your observations strictly in the actual samples above.
+1. Ground your observations strictly in the actual samples above and refer to the learner's goals and situations in natural conversational English.
 2. Frame every audible observation as tentative and correctable—remind the learner briefly that they can inspect or adjust any moment on the timeline.
 3. Keep audible observations separate from internal effort or feelings. If few or zero audible moments appeared, state clearly that smooth-sounding audio never cancels reported internal effort or difficulty.
 4. Do NOT diagnose psychology causes, do NOT manufacture severity, do NOT guarantee fluency, and do NOT give premature speech-mechanics commands.
-5. Recommend ONE clear next tool: P01 ("Your Identity With Your Speech"), explaining briefly how it connects to what came up in this check-in.`;
+5. Recommend ONE clear next lesson: Module 1 ("Your Identity With Your Speech"), explaining briefly how it connects to what came up in this check-in.`;
 }
 
 export interface P01MirrorOpening {
@@ -306,27 +455,18 @@ export function buildP01MirrorOpening(params: {
   attempts: SpeechAttempt[];
   speechTermMode: SpeechTermMode;
 }): P01MirrorOpening {
-  const cleanSnippet = (raw: string | undefined): string | null => {
-    if (!raw) return null;
-    const cleaned = raw
-      .replace(/^Important speaking situations:/, "")
-      .replace(/^Goal:/, "")
-      .replace(/^Completed /, "")
-      .trim();
-    const first = cleaned.split(/[,;\n]/)[0]?.trim() || "";
-    return first.length >= 3 && first.length <= 90 ? first : null;
-  };
-
   const goalMem = params.memories.find((m) => m.category === "goal" && m.fact.trim())?.fact;
   const ctxMem = params.memories.find((m) => m.category === "context" && m.fact.trim())?.fact;
   const profileGoal = params.profile?.chosenGoals?.find((g) => g.trim());
   const profileSit = params.profile?.importantSituations?.find((s) => s.trim());
 
-  const chosenSituation = cleanSnippet(profileSit) || cleanSnippet(ctxMem);
-  const chosenGoal = cleanSnippet(profileGoal) || cleanSnippet(goalMem);
+  const chosenSituation =
+    humanizeSituationPhrase(profileSit) || humanizeSituationPhrase(ctxMem);
+  const chosenGoal = humanizeGoalPhrase(profileGoal) || humanizeGoalPhrase(goalMem);
   const hasRealCheckInAttempt = params.attempts.some(
     (a) =>
       a.sourceContext.startsWith("check_in_") &&
+      isVerifiedSpokenAttempt(a) &&
       a.analysisStatus !== "fixture" &&
       Boolean(a.disfluentTranscript?.trim())
   );
@@ -334,7 +474,7 @@ export function buildP01MirrorOpening(params: {
   if (!chosenSituation && !chosenGoal && !hasRealCheckInAttempt) {
     const noun = params.speechTermMode === "stuttering" ? "stuttering" : "stammering";
     return {
-      text: `Welcome to P01. Before we explore any idea, let's start with something ordinary: when ${noun} shows up on one word, does that single moment ever quietly expand into a bigger verdict about who you are as a speaker?`,
+      text: `Welcome to Your Identity With Your Speech. Before we try a short baseline speaking turn and explore today's core idea, let's check in on one familiar experience: when ${noun} shows up on a word, does that single moment ever start to feel like a statement about who you are as a speaker?`,
       hasGenuineMemory: false,
       groundedContextLabel: null,
     };
@@ -342,19 +482,19 @@ export function buildP01MirrorOpening(params: {
 
   let text: string;
   if (chosenSituation && chosenGoal) {
-    text = `Earlier in your Check-In you mentioned ${chosenSituation} and wanting to work toward ${chosenGoal}. Before we unpack P01, I'm curious: in moments like ${chosenSituation}, does one difficult word ever quietly turn into a bigger verdict about yourself as a speaker?`;
+    text = `Earlier in your Check-In, you mentioned ${chosenSituation} and wanting to focus on ${chosenGoal}. Before we try a short baseline speaking turn, I'm curious: in moments like ${chosenSituation}, does one sticky word ever start to feel like a bigger statement about you as a speaker?`;
   } else if (chosenSituation) {
-    text = `In your Check-In, ${chosenSituation} stood out as an important place for your voice. Before we explore P01's core idea, does a sticky word in a moment like that ever quietly grow into a larger label about who you are?`;
+    text = `Earlier in your Check-In, you shared that ${chosenSituation} is an important place for your voice. Before we try a short baseline speaking turn, does a difficult word in a moment like that ever start to feel like a larger label about who you are?`;
   } else if (chosenGoal) {
-    text = `You shared earlier that you're aiming for ${chosenGoal}. As we step into P01 together, has one difficult speaking moment ever felt like it became a verdict about you as a speaker rather than just one moment?`;
+    text = `Earlier you shared that you'd like to focus on ${chosenGoal}. Before we try a short baseline speaking turn together, has one difficult speaking moment ever felt like it turned into a larger statement about you as a speaker?`;
   } else {
     text =
-      "Thank you for sharing your voice in the Check-In earlier. As we begin P01, I'd love to check in with you: when a word catches or pauses, does that single event ever turn into a much bigger label about who you are?";
+      "Thank you for sharing your voice in the Check-In earlier. Before we try our first short speaking turn here, I'd love to check in with you: when a word catches or hesitates, does that single moment ever start to feel like a larger statement about who you are?";
   }
 
   const label =
     [
-      chosenSituation ? `Context: ${chosenSituation}` : null,
+      chosenSituation ? `Situation: ${chosenSituation}` : null,
       chosenGoal ? `Goal: ${chosenGoal}` : null,
     ]
       .filter(Boolean)
@@ -367,35 +507,39 @@ export function buildP01MirrorResponsePrompt(params: {
   choice: P01MirrorChoice;
   learnerNote?: string;
   groundedContextLabel?: string | null;
+  recentConversationTurns?: ConversationTurn[];
   speechTermMode: SpeechTermMode;
 }): string {
   const behavior: Record<P01MirrorChoice, string> = {
     often:
-      "The learner answered 'Often'—meaning one sticky word frequently turns into a larger verdict about themselves. Validate calmly without dramatizing, and bridge cleanly to Beat 2 (Speak First) where they'll talk for 20-40 seconds about something ordinary they enjoy.",
+      "The learner answered 'Often'—meaning one sticky word frequently feels like a bigger statement about themselves. Validate calmly without dramatizing, and invite them into Beat 2 (Speak First) where they'll talk naturally for 20-45 seconds about something they enjoy outside work before any teaching.",
     sometimes:
-      "The learner answered 'Sometimes'—meaning that verdict shows up in some moments and not others. Acknowledge that nuance warmly and bridge cleanly to Beat 2 (Speak First).",
+      "The learner answered 'Sometimes'—meaning that feeling shows up in some moments and not others. Acknowledge that nuance warmly and invite them into Beat 2 (Speak First) to speak naturally before any concept is introduced.",
     rarely:
-      "The learner answered 'Rarely'. STRICT RULE: Respect this completely—do NOT pressure them to adopt a negative self-label or insist they secretly carry one. Frame P01 as a practical check-in on keeping speaking events specific and light, then bridge cleanly to Beat 2 (Speak First).",
+      "The learner answered 'Rarely'. STRICT RULE: Respect this completely—do NOT pressure them to adopt a negative self-label or insist they secretly carry one. Frame today's session as a practical exploration, then invite them into Beat 2 (Speak First).",
     skip:
       "The learner chose 'Skip'. Respect their choice warmly with zero pressure, and invite them gently into Beat 2 (Speak First) whenever they're ready.",
     speak:
-      "The learner responded in their own words. Acknowledge one concrete thing they ACTUALLY wrote below, respect their exact perspective without pushing any label, and bridge cleanly to Beat 2 (Speak First).",
+      "The learner responded in their own words. Acknowledge one concrete thing they ACTUALLY shared below, respect their exact perspective without pushing any label, and bridge cleanly to Beat 2 (Speak First).",
   };
 
   return `${COCO_SYSTEM_INSTRUCTION}
 
-Role: Coco in P01 Beat 1 (The Mirror — "Your Identity With Your Speech").
+Role: Coco in Beat 1 (The Mirror — "Your Identity With Your Speech").
 ${speechTermInstruction(params.speechTermMode)}
 ${CORE_GUARDRAILS}
 
 Verified learner context (only if present): ${params.groundedContextLabel || "None (neutral opening)"}
+Recent conversation turns in this session (chronological):
+${formatConversationHistory(params.recentConversationTurns, 6)}
+
 Learner's Beat 1 selection: ${params.choice}
 ${params.learnerNote?.trim() ? `Learner's own words: "${params.learnerNote.trim()}"` : "Learner's own words: None added."}
 
 Instructions:
 - ${behavior[params.choice]}
 - Keep your reply to 2 calm, conversational sentences.
-- Do not teach the full name-badge metaphor yet (that arrives in Beat 3).
+- Do NOT teach the Event-versus-Verdict distinction or Name-Badge metaphor yet (the learner speaks first in Beat 2 before Beat 3 introduces that teaching).
 - Never invent remembered facts or assume emotions the learner did not express.`;
 }
 
@@ -403,34 +547,48 @@ export function buildP01AttemptResponsePrompt(params: {
   isAttemptTwo: boolean;
   learnerTranscriptOrText: string | null;
   hasDirectAudioAttachment: boolean;
+  participationMode?: "recorded" | "spoken_unrecorded" | "typed_only";
   analysisUnavailableReason?: string | null;
+  recentConversationTurns?: ConversationTurn[];
   speechTermMode: SpeechTermMode;
 }): string {
+  const isWrittenFallback = params.participationMode === "typed_only";
+  const isSpokenUnrecorded = params.participationMode === "spoken_unrecorded";
+
   const beatContext = params.isAttemptTwo
-    ? `Beat: P01 Beat 4 — The Live Shift (Attempt 2, AFTER learning Event vs. Verdict and the Name-Badge metaphor).
+    ? `Beat: Beat 4 — The Live Shift (Attempt 2, AFTER learning Event vs. Verdict and the Name-Badge metaphor).
 Instructions:
-1. Respond warmly to ONE specific, genuine detail the learner ACTUALLY talked about below (focusing on meaning, not speech grading).
+1. Respond warmly to ONE specific, genuine detail the learner ACTUALLY shared below (focusing on their meaning, not grading their speech).
 2. Ask ONE natural, conversational follow-up question about what they shared.
 3. STRICT RULE: NEVER claim Attempt 2 is an "improvement" or "better" based on fewer detected speech events or acoustic fluency. Do NOT mention event counts.
-4. Keep your reply to 2-3 calm, human sentences.`
-    : `Beat: P01 Beat 2 — Speak First (Attempt 1, BEFORE teaching).
+${isWrittenFallback ? "4. Note: The learner typed this response in writing rather than recording voice audio—respond warmly to their written point without pretending you heard an audio recording." : ""}
+${isSpokenUnrecorded ? "4. Note: The learner confirmed they spoke this attempt aloud without recording audio—acknowledge their spoken practice warmly without claiming to have analysed a recording." : ""}
+5. Keep your reply to 2-3 calm, human sentences.`
+    : `Beat: Beat 2 — Speak First (Baseline Attempt 1, BEFORE the Event-versus-Verdict teaching in Beat 3).
 Instructions:
-1. Respond warmly to ONE specific, genuine detail the learner ACTUALLY talked about below so they know you truly heard their meaning.
-2. Do NOT give speech-mechanics advice, do NOT grade fluency, and do NOT cite event counts here.
-3. Close gently by inviting them to look at P01's core distinction (Event vs. Verdict) whenever they're ready.
-4. Keep your reply to 2 calm, conversational sentences.`;
+1. Respond warmly to ONE specific, genuine detail the learner ACTUALLY shared below so they know you truly heard their message.
+2. Do NOT give speech-mechanics advice, do NOT grade fluency, do NOT cite event counts, and do NOT pre-teach the Event-vs-Verdict concept or Name-Badge metaphor yet.
+${isWrittenFallback ? "3. Note: The learner shared this in writing rather than recording audio—respond warmly to their written message without claiming you heard an audio clip." : ""}
+${isSpokenUnrecorded ? "3. Note: The learner spoke this aloud without recording—acknowledge their spoken turn warmly without claiming to have analysed an audio clip." : ""}
+4. Close gently by inviting them to continue to Beat 3 whenever they're ready to explore today's core idea together.
+5. Keep your reply to 2 calm, conversational sentences.`;
 
   const contentBlock = params.learnerTranscriptOrText?.trim()
     ? `What the learner actually shared:\n"${params.learnerTranscriptOrText.trim()}"`
-    : params.hasDirectAudioAttachment
-      ? "Listen carefully to what the learner says in the attached audio recording. If the audio is silent, noise-only, or unclear, say honestly that you could not hear clear spoken words and invite them to record again—never guess or invent what they said."
-      : `Transcript unavailable (${params.analysisUnavailableReason || "not transcribed"}). STRICT RULE: Say honestly that you couldn't read a transcript from that clip, never guess what they talked about, and offer a calm neutral acknowledgement.`;
+    : isSpokenUnrecorded
+      ? "The learner confirmed they spoke their turn aloud without recording audio and did not add a written summary. Thank them warmly for speaking the turn aloud and invite them to the next step without guessing what topic they chose."
+      : params.hasDirectAudioAttachment
+        ? "Listen carefully to what the learner says in the attached audio recording. If the audio is silent, noise-only, or unclear, say honestly that you could not hear clear spoken words and invite them to record again—never guess or invent what they said."
+        : `Transcript unavailable (${params.analysisUnavailableReason || "not transcribed"}). STRICT RULE: Say honestly that you couldn't read a transcript from that clip, never guess what they talked about, and offer a calm neutral acknowledgement.`;
 
   return `${COCO_SYSTEM_INSTRUCTION}
 
-Role: Coco in P01 ("Your Identity With Your Speech").
+Role: Coco in "Your Identity With Your Speech".
 ${speechTermInstruction(params.speechTermMode)}
 ${CORE_GUARDRAILS}
+
+Recent conversation turns in this session (chronological):
+${formatConversationHistory(params.recentConversationTurns, 6)}
 
 ${beatContext}
 
@@ -439,40 +597,58 @@ ${contentBlock}`;
 
 export function buildP01LabelReflectionPrompt(
   learnerLabel: string,
-  speechTermMode: SpeechTermMode
+  speechTermMode: SpeechTermMode,
+  recentConversationTurns?: ConversationTurn[]
 ): string {
   return `${COCO_SYSTEM_INSTRUCTION}
 
-Role: Coco in P01 Beat 3 (One Idea & Name-Badge Metaphor).
+Role: Coco in Beat 3 (Event vs. Verdict & Name-Badge Metaphor).
 ${speechTermInstruction(speechTermMode)}
 ${CORE_GUARDRAILS}
 
-The learner optionally shared a familiar label or thought that sometimes shows up for them: "${learnerLabel}"
+Recent conversation turns in this session (chronological):
+${formatConversationHistory(recentConversationTurns, 6)}
+
+The learner optionally shared a familiar label or rule that sometimes shows up for them: "${learnerLabel}"
 
 Instructions:
-- In 2 warm, grounded sentences, acknowledge their exact phrase and contrast that global verdict with a single specific speaking event (like setting a heavy name badge down on the table for one conversation).
+- In 2 warm, grounded sentences, acknowledge their exact phrase and contrast that broad verdict or rule with a single specific speaking event (like setting a heavy name badge down on the table for one conversation).
 - Never diagnose psychology, never push them to adopt extra labels, and never use school-quiz language.`;
 }
 
 export function buildP01FollowUpClosingPrompt(
   cocoQuestion: string,
   learnerReply: string,
-  speechTermMode: SpeechTermMode
+  speechTermMode: SpeechTermMode,
+  recentConversationTurns?: ConversationTurn[]
 ): string {
   return `${COCO_SYSTEM_INSTRUCTION}
 
-Role: Coco closing the brief follow-up in P01 Beat 4 (The Live Shift).
+Role: Coco closing the brief follow-up in Beat 4 (The Live Shift).
 ${speechTermInstruction(speechTermMode)}
 ${CORE_GUARDRAILS}
+
+Recent conversation turns in this session (chronological):
+${formatConversationHistory(recentConversationTurns, 6)}
 
 Your follow-up question: "${cocoQuestion}"
 Learner's reply: "${learnerReply}"
 
 Instructions:
 - In 1-2 warm sentences, respond genuinely to what the learner just answered.
-- Do NOT ask another new question—leave space for them to optionally compare attempts, note how it felt, or move to Beat 5 (Transfer).`;
+- Do NOT ask another new question—leave space for them to reflect or move to Beat 5 (Transfer).`;
 }
 
+/**
+ * Strictly scopes reached P01 content to the active beat so unreached lesson
+ * concepts never enter Ask Coco's prompt context.
+ * - Beat 1 (Mirror): Only P01-01 (welcome & noticing whether a moment feels like a broader picture).
+ * - Beat 2 (Speak First): Adds P01-07 (baseline speaking attempt BEFORE Event-vs-Verdict teaching).
+ * - Beat 3 (One Idea): Adds P01-02, P01-03 (meeting introduction example), P01-04 (name-badge metaphor),
+ *   P01-05 (event vs verdict distinction), and P01-06 (label reflection).
+ * - Beat 4 (Live Shift): Adds P01-08 (Attempt 2 with one clear purpose) and P01-10 (review).
+ * - Beat 5 (Transfer): Adds P01-11 (real-world message-focused transfer) and P01-12 (closing).
+ */
 export function getP01SectionsForBeat(activeBeat: P01BeatId): Array<{
   id: string;
   heading: string;
@@ -486,85 +662,129 @@ export function getP01SectionsForBeat(activeBeat: P01BeatId): Array<{
     "p01_beat_5_transfer",
   ];
   const map: Record<P01BeatId, string[]> = {
-    p01_beat_1_mirror: ["P01-01", "P01-02"],
+    p01_beat_1_mirror: ["P01-01"],
     p01_beat_2_speak_first: ["P01-07"],
-    p01_beat_3_one_idea: ["P01-03", "P01-04", "P01-05", "P01-06", "P01-08"],
-    p01_beat_4_live_shift: ["P01-09", "P01-10"],
+    p01_beat_3_one_idea: ["P01-02", "P01-03", "P01-04", "P01-05", "P01-06"],
+    p01_beat_4_live_shift: ["P01-08", "P01-10"],
     p01_beat_5_transfer: ["P01-11", "P01-12"],
   };
-  const activeIdx = beatOrder.indexOf(activeBeat);
+  const activeIdx = Math.max(0, beatOrder.indexOf(activeBeat));
   const reachedIds = new Set(
     beatOrder.slice(0, activeIdx + 1).flatMap((b) => map[b] || [])
   );
+
   return (p01Content.sections || [])
     .filter((s) => reachedIds.has(s.id))
-    .map((s) => ({
-      id: s.id,
-      heading: (s as { heading?: string }).heading || s.type,
-      narration: s.narration,
-    }));
+    .map((s) => {
+      let narration = s.narration;
+      // In Beat 1 & Beat 2 (before Beat 3 is reached), strip the preview sentence in P01-01
+      // that mentions "separate a particular event from a verdict" so unreached Beat 3 teaching
+      // does not leak before the baseline speaking attempt.
+      if (activeIdx < 2 && s.id === "P01-01") {
+        narration =
+          "Welcome. In this session, we explore the picture you carry of yourself as a speaker—whether you feel you struggle to speak or feel pressure to always sound confident. Before we look at today's core concept, we begin by noticing how speaking moments feel and trying a relaxed baseline speaking turn.";
+      }
+      if (activeIdx < 2 && s.id === "P01-07") {
+        narration = P01_BEAT_2_SPEAK_FIRST_NARRATION;
+      }
+      return {
+        id: s.id,
+        heading: (s as { heading?: string }).heading || s.type,
+        narration,
+      };
+    });
 }
 
 export function buildLessonQaPrompt(scope: JourneyScope, learnerQuestion: string): string {
   const reachedBlock =
     scope.reachedSectionSummaries.length > 0
       ? scope.reachedSectionSummaries
-          .map((s) => `- ${s.id} (${s.heading}): ${s.narration}`)
+          .map((s) => `- ${s.heading}: ${s.narration}`)
           .join("\n")
-      : "- Initial orientation only (no P01 sections reached yet).";
+      : "- Initial orientation only (no lesson teaching sections reached yet).";
+
+  const currentSessionSpoken = (
+    scope.currentSessionAttempts ??
+    scope.recentAttempts.filter((a) => a.isCurrentSession !== false)
+  ).filter(isVerifiedSpokenAttempt);
 
   const attemptBlock =
-    scope.recentAttempts.length > 0
-      ? scope.recentAttempts
+    currentSessionSpoken.length > 0
+      ? currentSessionSpoken
           .slice(0, 6)
           .map(
             (a) =>
-              `- ${a.sourceContext} / ${a.activityOrSectionId} (${a.durationSeconds.toFixed(1)}s, status=${a.analysisStatus})${
+              `- Current session spoken attempt (${a.sourceContext}, ${
+                a.participationStatus === "spoken_unrecorded"
+                  ? "spoken aloud without recording"
+                  : `${a.durationSeconds.toFixed(1)}s recorded`
+              })${
                 a.disfluentTranscript ? ` transcript="${a.disfluentTranscript}"` : ""
               }${a.summaryObservation ? ` summary="${a.summaryObservation}"` : ""}`
           )
           .join("\n")
-      : "None recorded yet.";
+      : "No verified spoken recordings in this current session yet.";
 
   const memoryBlock =
     scope.sharedMemories.length > 0
-      ? scope.sharedMemories.slice(0, 8).map((m) => `- [${m.category}] ${m.fact}`).join("\n")
-      : "None shared yet.";
+      ? scope.sharedMemories
+          .slice(0, 8)
+          .map((m) => {
+            const natural =
+              m.category === "goal"
+                ? humanizeGoalPhrase(m.fact) || m.fact
+                : m.category === "context"
+                  ? humanizeSituationPhrase(m.fact) || m.fact
+                  : m.fact;
+            return `- [${m.category}] ${natural}`;
+          })
+          .join("\n")
+      : "None saved yet.";
+
+  const conversationHistoryBlock = formatConversationHistory(
+    scope.recentConversationTurns,
+    10
+  );
 
   return `${COCO_SYSTEM_INSTRUCTION}
 
-Task: Answer the learner's contextual question in "Ask Coco" while strictly respecting their current place in the journey.
+Task: Answer the learner's contextual question in "Ask Coco" while maintaining multi-turn conversation continuity and strictly respecting their current place in the journey.
 ${speechTermInstruction(scope.speechTermMode)}
 ${CORE_GUARDRAILS}
 
 Current location: ${scope.currentStageLabel}
 Check-In completed: ${scope.checkInCompleted ? "Yes" : "Not yet"}
 Completed steps so far: ${scope.completedStepTitles.join(", ") || "None yet"}
-Unreached upcoming steps (DO NOT spoil, preview, or pretend these are completed): ${
+Unreached upcoming steps (STRICT BOUNDARY — DO NOT spoil, teach, preview, or pretend these are completed): ${
     scope.unreachedStepTitles.join(", ") || "None"
   }
 
-Authored material reached so far:
+Lesson material reached so far (ONLY draw lesson concepts from here):
 ${reachedBlock}
 
-Verified speech attempts & observations:
+Current-session verified spoken attempts & observations:
 ${attemptBlock}
 
-Shared learner memories (user-approved only):
+Long-term shared learner memories (separately scoped background context):
 ${memoryBlock}
 
-Learner's question:
+Recent Ask Coco conversation history (current session, chronological order oldest to newest):
+${conversationHistoryBlock}
+
+Learner's latest question:
 "${learnerQuestion}"
 
 Strict Rules:
-1. Answer warmly and concisely (2-4 spoken sentences) grounded ONLY in the reached material, real verified attempts, and shared memories above.
-2. Never claim unreached steps were completed, and never fabricate facts or transcripts.`;
+1. Maintain direct continuity with the Recent Ask Coco conversation history above—if the learner refers to a situation, word, or question from an earlier turn (such as ordering at a café or saying their name), recall and build on those exact details accurately without inventing extra facts.
+2. Answer warmly and concisely (2-4 spoken sentences) grounded ONLY in the reached material, recent conversation turns, current-session verified spoken attempts, and shared memories above.
+3. Never teach or preview unreached upcoming steps, never claim unreached steps were completed, and never fabricate facts or transcripts.`;
 }
 
 export interface ProvisionalFocusWeek {
   weekNumber: number;
   focusTitle: string;
   suggestedToolIds: string[];
+  focusAreasLabel: string;
   rationale: string;
 }
 
@@ -580,24 +800,26 @@ export function buildProvisionalRoadmap(params: {
   memories: CoachMemoryItem[];
   beat4Feeling: P01ShiftFeeling | null;
 }): ProvisionalFocusPlan {
-  const situations = (params.profile?.importantSituations || []).filter((s) => s.trim());
+  const situations = (params.profile?.importantSituations || [])
+    .map((s) => humanizeSituationPhrase(s))
+    .filter((s): s is string => Boolean(s));
   const goals = (params.profile?.chosenGoals || [])
-    .filter((g) => g.trim())
-    .concat(
-      params.memories.filter((m) => m.category === "goal").map((m) => m.fact)
-    );
+    .concat(params.memories.filter((m) => m.category === "goal").map((m) => m.fact))
+    .map((g) => humanizeGoalPhrase(g))
+    .filter((g): g is string => Boolean(g));
+
   const contextPhrase =
     situations.length > 0
       ? situations.slice(0, 2).join(" and ")
-      : goals[0]?.slice(0, 70) || "everyday conversations at your own pace";
+      : goals[0] || "everyday conversations at your own pace";
 
   const feelingNote =
     params.beat4Feeling === "lighter"
-      ? "Since shifting focus felt lighter in Beat 4, we can keep building on that openness."
+      ? "Since shifting focus to your message felt lighter today, we can keep building on that openness."
       : params.beat4Feeling === "harder"
-        ? "Since Beat 4 felt harder, we can keep early steps unhurried and add calm body supports."
+        ? "Since the second attempt felt harder today, we can keep early steps unhurried and add calm physical supports."
         : params.beat4Feeling === "similar"
-          ? "Since Beat 4 felt similar, steady repetition in low-stakes moments is a solid next step."
+          ? "Since both attempts felt similar today, steady practice in low-stakes moments is a solid next step."
           : "You choose the pace at every step—Continue, Repeat, or Gentler Practice are always yours.";
 
   return {
@@ -610,26 +832,30 @@ export function buildProvisionalRoadmap(params: {
         weekNumber: 1,
         focusTitle: "Safety, Self-Permission & Calm Starts",
         suggestedToolIds: ["P01", "B01", "P05"],
+        focusAreasLabel: "Identity Perspective • Easy Airflow Starts • Self-Permission",
         rationale:
-          "Separate speaking events from self-verdicts and explore comfortable moving-air starts.",
+          "Separate single speaking events from self-verdicts and explore comfortable moving-air starts.",
       },
       {
         weekNumber: 2,
         focusTitle: "Noticing Tension & Staying With Meaning",
         suggestedToolIds: ["B03", "B07", "P06"],
+        focusAreasLabel: "Unhurried Pauses • Releasing Bracing • Listener Focus",
         rationale: `Try comfortable pauses and noticing unnecessary bracing in situations like ${contextPhrase}.`,
       },
       {
         weekNumber: 3,
-        focusTitle: "Gentle Pace & Low-Stakes Sparring",
+        focusTitle: "Gentle Pace & Low-Stakes Conversation",
         suggestedToolIds: ["B02", "B04", "P02"],
+        focusAreasLabel: "Gentle Phrasing • Before-I-Speak Prep • Live Practice",
         rationale:
-          "Pair gentle phrasing with responsive Live Sparring and optional Before-I-Speak prep.",
+          "Pair gentle phrasing with responsive two-way conversation and optional preparation.",
       },
       {
         weekNumber: 4,
         focusTitle: "Real-World Participation & Debrief",
         suggestedToolIds: ["P07", "B05"],
+        focusAreasLabel: "Everyday Participation • Post-Conversation Debrief",
         rationale:
           "Carry small chosen intentions into real life and debrief what actually happened afterwards.",
       },

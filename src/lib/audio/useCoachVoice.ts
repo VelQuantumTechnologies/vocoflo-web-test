@@ -38,7 +38,7 @@ export function useCoachVoice(
     paused: false,
     activeRole: "COCO",
     activeText: "",
-    sourceLabel: "Coco Voice (Sulafat)",
+    sourceLabel: "Coco",
     playbackRate: 1.15,
     audioDefaultEnabled: true,
     allowBrowserFallback: false,
@@ -55,19 +55,28 @@ export function useCoachVoice(
 
   const stopAudioOnly = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.pause();
+      try {
+        audioRef.current.pause();
+      } catch {
+        // ignore
+      }
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
       audioRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
     }
   }, []);
 
   useEffect(() => {
     const cacheMap = cacheUrlsRef.current;
     return () => {
+      requestCounterRef.current += 1;
       stopAudioOnly();
       cacheMap.forEach((url) => {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -76,7 +85,17 @@ export function useCoachVoice(
   }, [stopAudioOnly]);
 
   const playUrl = useCallback(
-    async (url: string, role: VoiceRole, text: string, rate: number, label: string) => {
+    async (
+      url: string,
+      role: VoiceRole,
+      text: string,
+      rate: number,
+      label: string,
+      reqId: number
+    ) => {
+      if (reqId !== requestCounterRef.current) {
+        return;
+      }
       stopAudioOnly();
       const audio = new Audio(url);
       audio.playbackRate = role === "COCO" ? rate : 1.0;
@@ -84,6 +103,7 @@ export function useCoachVoice(
       audioRef.current = audio;
 
       audio.onended = () => {
+        if (reqId !== requestCounterRef.current) return;
         setState((prev) => ({
           ...prev,
           speaking: false,
@@ -92,16 +112,22 @@ export function useCoachVoice(
         }));
       };
       audio.onerror = () => {
+        if (reqId !== requestCounterRef.current) return;
         setState((prev) => ({
           ...prev,
           speaking: false,
           synthesizing: false,
-          unavailableMessage: "Audio playback failed in this browser; readable text remains available.",
+          unavailableMessage:
+            "Audio playback could not start in this browser; readable text is shown below.",
         }));
       };
 
       try {
         await audio.play();
+        if (reqId !== requestCounterRef.current) {
+          stopAudioOnly();
+          return;
+        }
         setState((prev) => ({
           ...prev,
           synthesizing: false,
@@ -114,6 +140,10 @@ export function useCoachVoice(
           unavailableMessage: null,
         }));
       } catch (err) {
+        if (reqId !== requestCounterRef.current) {
+          stopAudioOnly();
+          return;
+        }
         const msg = err instanceof Error ? err.message : "Autoplay blocked";
         setState((prev) => ({
           ...prev,
@@ -125,7 +155,7 @@ export function useCoachVoice(
           activeText: text,
           sourceLabel: label,
           unavailableMessage:
-            "Browser paused automatic playback before a tap. Press Play Audio to listen.",
+            "Press Play Audio whenever you are ready to listen.",
         }));
         onLog?.(`Audio playback deferred (${msg})`);
       }
@@ -158,13 +188,10 @@ export function useCoachVoice(
       if (reqId !== requestCounterRef.current) return;
 
       if (assetUrl) {
-        const label =
-          role === "COCO"
-            ? "Coco Voice • Sulafat (Pre-generated)"
-            : "Partner Voice • Orus (Pre-generated)";
+        const label = role === "COCO" ? "Coco" : "Conversation Partner";
         setState((prev) => ({ ...prev, preGeneratedHits: prev.preGeneratedHits + 1 }));
         onLog?.(`Voice cache hit (pre-generated): ${assetUrl}`);
-        await playUrl(assetUrl, role, clean, state.playbackRate, label);
+        await playUrl(assetUrl, role, clean, state.playbackRate, label, reqId);
         return;
       }
 
@@ -174,15 +201,15 @@ export function useCoachVoice(
 
       const cachedUrl = cacheUrlsRef.current.get(cacheKey);
       if (cachedUrl) {
-        const label =
-          role === "COCO" ? "Coco Voice • Sulafat (Cached)" : "Partner Voice • Orus (Cached)";
+        const label = role === "COCO" ? "Coco" : "Conversation Partner";
         setState((prev) => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
-        await playUrl(cachedUrl, role, clean, state.playbackRate, label);
+        await playUrl(cachedUrl, role, clean, state.playbackRate, label, reqId);
         return;
       }
 
       // 3. Guest Review Mode never invokes live TTS
       if (isGuestMode) {
+        if (reqId !== requestCounterRef.current) return;
         if (
           state.allowBrowserFallback &&
           typeof window !== "undefined" &&
@@ -191,16 +218,17 @@ export function useCoachVoice(
           const utter = new SpeechSynthesisUtterance(transcript);
           utter.rate = role === "COCO" ? state.playbackRate : 1.0;
           utter.pitch = role === "COCO" ? 1.0 : 0.9;
-          utter.onend = () =>
+          utter.onend = () => {
+            if (reqId !== requestCounterRef.current) return;
             setState((p) => ({ ...p, speaking: false, synthesizing: false }));
+          };
           window.speechSynthesis.speak(utter);
           setState((p) => ({
             ...p,
             synthesizing: false,
             speaking: true,
-            sourceLabel: "Guest Mode • Browser Speech",
-            unavailableMessage:
-              "Guest Review Mode: using browser speech fallback for dynamic simulated text.",
+            sourceLabel: "Coco (Simulated Voice)",
+            unavailableMessage: null,
           }));
           return;
         }
@@ -209,9 +237,8 @@ export function useCoachVoice(
           ...prev,
           synthesizing: false,
           speaking: false,
-          sourceLabel: "Guest Mode • Simulated Text",
-          unavailableMessage:
-            "Guest Review Mode: live Sulafat/Orus TTS is disabled (no unauthenticated AI calls). Pre-generated prompts play audio; readable simulated text is shown below.",
+          sourceLabel: "Guest Mode • Simulated Response",
+          unavailableMessage: null,
         }));
         onLog?.("Guest Review Mode: skipped live TTS call; displaying simulated text.");
         return;
@@ -229,7 +256,7 @@ export function useCoachVoice(
       if (reqId !== requestCounterRef.current) return;
 
       if (!res.ok || !res.audioBase64) {
-        const errMsg = res.errorMessage || "Live voice unavailable.";
+        const errMsg = res.errorMessage || "Voice audio unavailable right now.";
         onLog?.(`Live TTS failed: ${errMsg}`, true);
 
         if (
@@ -240,15 +267,17 @@ export function useCoachVoice(
           const utter = new SpeechSynthesisUtterance(transcript);
           utter.rate = role === "COCO" ? state.playbackRate : 1.0;
           utter.pitch = role === "COCO" ? 1.0 : 0.9;
-          utter.onend = () =>
+          utter.onend = () => {
+            if (reqId !== requestCounterRef.current) return;
             setState((p) => ({ ...p, speaking: false, synthesizing: false }));
+          };
           window.speechSynthesis.speak(utter);
           setState((p) => ({
             ...p,
             synthesizing: false,
             speaking: true,
-            sourceLabel: "Browser Speech Fallback (Opt-in)",
-            unavailableMessage: "Using browser speech fallback because live TTS was unavailable.",
+            sourceLabel: "Browser Speech Fallback",
+            unavailableMessage: "Using browser speech fallback because live voice was unavailable.",
           }));
           return;
         }
@@ -257,8 +286,8 @@ export function useCoachVoice(
           ...prev,
           synthesizing: false,
           speaking: false,
-          sourceLabel: "Text Visible (Voice Unavailable)",
-          unavailableMessage: `${errMsg} Readable text stays visible below.`,
+          sourceLabel: "Text Visible",
+          unavailableMessage: "Voice audio is unavailable for this response; full text is shown below.",
         }));
         return;
       }
@@ -269,9 +298,9 @@ export function useCoachVoice(
       const blobUrl = URL.createObjectURL(blob);
       cacheUrlsRef.current.set(cacheKey, blobUrl);
 
-      const label =
-        role === "COCO" ? "Coco Voice • Sulafat (Live)" : "Partner Voice • Orus (Live)";
-      await playUrl(blobUrl, role, clean, state.playbackRate, label);
+      if (reqId !== requestCounterRef.current) return;
+      const label = role === "COCO" ? "Coco" : "Conversation Partner";
+      await playUrl(blobUrl, role, clean, state.playbackRate, label, reqId);
     },
     [isGuestMode, onLog, playUrl, state.allowBrowserFallback, state.playbackRate, stopAudioOnly]
   );
@@ -298,17 +327,29 @@ export function useCoachVoice(
     }));
   }, [stopAudioOnly]);
 
-  const setPlaybackRate = useCallback((rate: number) => {
-    if (audioRef.current && state.activeRole === "COCO") {
-      audioRef.current.playbackRate = rate;
-    }
-    setState((prev) => ({ ...prev, playbackRate: rate }));
-  }, [state.activeRole]);
+  const getRequestEpoch = useCallback(() => requestCounterRef.current, []);
 
-  const setAudioDefaultEnabled = useCallback((enabled: boolean) => {
-    if (!enabled) pauseOrStop();
-    setState((prev) => ({ ...prev, audioDefaultEnabled: enabled }));
-  }, [pauseOrStop]);
+  const invalidatePendingRequests = useCallback(() => {
+    requestCounterRef.current += 1;
+  }, []);
+
+  const setPlaybackRate = useCallback(
+    (rate: number) => {
+      if (audioRef.current && state.activeRole === "COCO") {
+        audioRef.current.playbackRate = rate;
+      }
+      setState((prev) => ({ ...prev, playbackRate: rate }));
+    },
+    [state.activeRole]
+  );
+
+  const setAudioDefaultEnabled = useCallback(
+    (enabled: boolean) => {
+      if (!enabled) pauseOrStop();
+      setState((prev) => ({ ...prev, audioDefaultEnabled: enabled }));
+    },
+    [pauseOrStop]
+  );
 
   const setAllowBrowserFallback = useCallback((allowed: boolean) => {
     setState((prev) => ({ ...prev, allowBrowserFallback: allowed }));
@@ -319,6 +360,8 @@ export function useCoachVoice(
     speak,
     pauseOrStop,
     stopBeforeMic,
+    getRequestEpoch,
+    invalidatePendingRequests,
     setPlaybackRate,
     setAudioDefaultEnabled,
     setAllowBrowserFallback,

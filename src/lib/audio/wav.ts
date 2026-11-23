@@ -72,7 +72,24 @@ export async function lookupPreGeneratedAssetUrl(
       entry.status === "bundled" &&
       prepareTtsTranscript(entry.text) === normalized
   );
-  return textMatch ? `/${textMatch.assetPath}` : null;
+  if (textMatch) {
+    return `/${textMatch.assetPath}`;
+  }
+  // Also match shortened/concise excerpts of bundled P01 narration cues so shortened
+  // teaching or baseline speaking invitations still use bundled pre-generated audio.
+  const firstSentence = normalized.split(/(?<=[.!?])\s+/)[0]?.trim() || "";
+  if (firstSentence.length >= 24) {
+    const partialMatch = manifestEntries.find(
+      (entry) =>
+        entry.role === role &&
+        entry.status === "bundled" &&
+        prepareTtsTranscript(entry.text).includes(firstSentence)
+    );
+    if (partialMatch) {
+      return `/${partialMatch.assetPath}`;
+    }
+  }
+  return null;
 }
 
 export function extractSampleRateFromMime(mimeType: string | null | undefined): number {

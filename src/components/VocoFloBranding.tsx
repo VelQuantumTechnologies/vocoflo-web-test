@@ -31,7 +31,7 @@ export function VocoFloWordmark({ size = 32 }: { size?: number }) {
           VocoFlo
         </span>
         <span className="text-[11px] uppercase tracking-[0.14em] text-mutedSage">
-          Web Test Harness
+          Calm Speaking Coach
         </span>
       </div>
     </div>
@@ -42,15 +42,17 @@ export function CocoOrb({
   mode = "idle",
   size = 44,
 }: {
-  mode?: "idle" | "thinking" | "speaking";
+  mode?: "idle" | "thinking" | "preparing_voice" | "speaking";
   size?: number;
 }) {
   const ringClass =
     mode === "speaking"
       ? "ring-2 ring-mintAccent/70 scale-105"
       : mode === "thinking"
-        ? "ring-2 ring-warmGold/60 animate-pulse"
-        : "ring-1 ring-emeraldBorder";
+        ? "ring-2 ring-warmGold/70 animate-pulse"
+        : mode === "preparing_voice"
+          ? "ring-2 ring-mintHighlight/60 animate-pulse"
+          : "ring-1 ring-emeraldBorder";
 
   return (
     <div
@@ -68,7 +70,7 @@ export function ParkCafeSceneCard() {
     <div className="overflow-hidden rounded-2xl border border-emeraldBorder bg-emeraldSurface">
       <div className="border-b border-emeraldBorder/70 bg-emeraldRaised px-4 py-2.5">
         <p className="text-xs font-semibold uppercase tracking-wider text-mintAccent">
-          Scene to Describe • Sunny Neighbourhood Park & Corner Cafe
+          Scene to Describe • Sunny Neighbourhood Park &amp; Corner Cafe
         </p>
       </div>
       <div className="p-4">

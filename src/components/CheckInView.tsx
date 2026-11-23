@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ArrowRight, CheckCircle2, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, MessageSquare, RotateCcw, Sparkles } from "lucide-react";
 import {
   CHECK_IN_CONTEXT_CUE,
   CHECK_IN_ORIENTATION_CUE,
@@ -29,7 +29,7 @@ import type {
   VoiceRole,
 } from "@/types/vocoflo";
 import { AcousticMirrorPanel } from "./AcousticMirrorPanel";
-import { CocoAudioPanel } from "./CocoAudioPanel";
+import { CocoAudioPanel, CocoThinkingCard } from "./CocoAudioPanel";
 import { MicSpeakingPanel } from "./MicSpeakingPanel";
 import { ParkCafeSceneCard } from "./VocoFloBranding";
 
@@ -143,10 +143,15 @@ export function CheckInView({
 
   const [sampleIndex, setSampleIndex] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [thinkingLabel, setThinkingLabel] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
+  const [sampleSubmittedNotes, setSampleSubmittedNotes] = useState<Record<number, string>>({});
   const [sampleCocoReplies, setSampleCocoReplies] = useState<Record<number, string>>({});
   const [sampleAttemptIds, setSampleAttemptIds] = useState<Record<number, string>>({});
+  const [showSampleRecorderAgain, setShowSampleRecorderAgain] = useState<Record<number, boolean>>(
+    {}
+  );
 
   // Sample 4 Live Conversation state (up to 6 turns)
   const [conversationActive, setConversationActive] = useState(false);
@@ -156,6 +161,7 @@ export function CheckInView({
 
   // Stage 3 Shift experiment state
   const [shiftAttemptId, setShiftAttemptId] = useState<string | null>(null);
+  const [shiftCompletedSummary, setShiftCompletedSummary] = useState<string | null>(null);
   const [shiftFeeling, setShiftFeeling] = useState<string>("");
   const [shiftNote, setShiftNote] = useState<string>("");
 
@@ -194,65 +200,91 @@ export function CheckInView({
     setter(list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
   };
 
-  const handleSampleSubmission = async (
-    blob: Blob | null,
-    durationSeconds: number,
-    mimeType: string | null,
-    runAnalysis: boolean,
-    typedText: string | null
-  ) => {
+  const handleSampleSubmission = async (params: {
+    participationMode: "recorded" | "spoken_unrecorded" | "typed_only";
+    blob: Blob | null;
+    durationSeconds: number;
+    mimeType: string | null;
+    runAnalysis: boolean;
+    learnerText: string | null;
+  }) => {
+    const { participationMode, blob, durationSeconds, mimeType, runAnalysis, learnerText } =
+      params;
     const spec = CHECK_IN_SAMPLES[sampleIndex];
+
+    const immediateNote =
+      participationMode === "recorded"
+        ? `Submitted ${durationSeconds.toFixed(1)}s recorded sample`
+        : participationMode === "spoken_unrecorded"
+          ? learnerText
+            ? `Spoke aloud without recording: "${learnerText}"`
+            : "Spoke sample aloud without recording audio"
+          : `Written response (not a spoken recording): "${learnerText || ""}"`;
+
+    setSampleSubmittedNotes((prev) => ({ ...prev, [sampleIndex]: immediateNote }));
+    setShowSampleRecorderAgain((prev) => ({ ...prev, [sampleIndex]: false }));
     setBusy(true);
+    setThinkingLabel("Coco is thinking about your check-in sample…");
     setErrorBanner(null);
 
     try {
       const attemptId = `att_ci_s${sampleIndex + 1}_${crypto.randomUUID().slice(0, 8)}`;
-      const attempt: SpeechAttempt = {
-        id: attemptId,
-        userId: uid,
-        sourceContext: spec.sourceContext,
-        activityOrSectionId: `check_in_sample_${sampleIndex + 1}`,
-        promptText: spec.cocoSpokenInvitation,
-        durationSeconds: blob ? durationSeconds : 0,
-        hasLocalAudio: Boolean(blob),
-        analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
-        disfluentTranscript: typedText,
-        createdAtIso: new Date().toISOString(),
-      };
-
-      await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
-      setSampleAttemptIds((prev) => ({ ...prev, [sampleIndex]: attemptId }));
-      onResetMic();
-
-      let transcriptForCoco = typedText;
+      let transcriptForCoco = learnerText;
       let summaryObs: string | null = null;
       let obsLines: string[] = [];
 
-      if (blob && runAnalysis) {
-        const analysis = await onRunSpeechAnalysis(
-          attempt,
-          blob,
-          mimeType || "audio/webm",
-          "assessment_analysis"
-        );
-        if (analysis.ok) {
-          transcriptForCoco = analysis.transcript;
-          summaryObs = analysis.summaryObservation;
-          obsLines = analysis.events.map(
-            (ev) => `${ev.startSeconds.toFixed(1)}s ${ev.eventType}${ev.wordOrSound ? ` (${ev.wordOrSound})` : ""}`
+      // Priority 3: Do not save a typed fallback as a verified spoken recording
+      if (participationMode === "recorded" || participationMode === "spoken_unrecorded") {
+        const attempt: SpeechAttempt = {
+          id: attemptId,
+          userId: uid,
+          sourceContext: spec.sourceContext,
+          activityOrSectionId: `check_in_sample_${sampleIndex + 1}`,
+          promptText: spec.cocoSpokenInvitation,
+          durationSeconds: blob ? durationSeconds : 0,
+          hasLocalAudio: Boolean(blob),
+          analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
+          disfluentTranscript: learnerText,
+          selfReportParticipationNote: participationMode,
+          participationStatus: participationMode,
+          isCurrentSession: true,
+          createdAtIso: new Date().toISOString(),
+        };
+
+        await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
+        setSampleAttemptIds((prev) => ({ ...prev, [sampleIndex]: attemptId }));
+        onResetMic();
+
+        if (blob && runAnalysis) {
+          const analysis = await onRunSpeechAnalysis(
+            attempt,
+            blob,
+            mimeType || "audio/webm",
+            "assessment_analysis"
           );
+          if (analysis.ok) {
+            transcriptForCoco = analysis.transcript;
+            summaryObs = analysis.summaryObservation;
+            obsLines = analysis.events.map(
+              (ev) =>
+                `${ev.startSeconds.toFixed(1)}s ${ev.eventType}${
+                  ev.wordOrSound ? ` (${ev.wordOrSound})` : ""
+                }`
+            );
+          }
         }
+      } else {
+        onResetMic();
       }
 
       const prompt = buildCheckInListeningPrompt({
         sampleIndex,
         sampleTitle: spec.title,
-        questionAsked:
-          spec.pictureSceneContext
-            ? `${spec.cocoSpokenInvitation}\nScene context: ${spec.pictureSceneContext}`
-            : spec.readingPassage
-              ? `${spec.cocoSpokenInvitation}\nPassage: "${spec.readingPassage}"`
-              : spec.cocoSpokenInvitation,
+        questionAsked: spec.pictureSceneContext
+          ? `${spec.cocoSpokenInvitation}\nScene context: ${spec.pictureSceneContext}`
+          : spec.readingPassage
+            ? `${spec.cocoSpokenInvitation}\nPassage: "${spec.readingPassage}"`
+            : spec.cocoSpokenInvitation,
         learnerTranscript: transcriptForCoco,
         isReadingSample: spec.index === 2,
         summaryObservation: summaryObs,
@@ -261,7 +293,12 @@ export function CheckInView({
       });
 
       const payload: Record<string, unknown> = { prompt };
-      if (!transcriptForCoco && blob && blob.size <= MAX_WEB_AUDIO_UPLOAD_BYTES) {
+      if (
+        participationMode === "recorded" &&
+        !transcriptForCoco &&
+        blob &&
+        blob.size <= MAX_WEB_AUDIO_UPLOAD_BYTES
+      ) {
         payload.audioBase64 = await blobToBase64(blob);
         payload.mimeType = mimeType || "audio/webm";
       }
@@ -290,7 +327,11 @@ export function CheckInView({
         sanitizeCocoOutput(res.text) ||
         "Thank you for sharing that sample with me. Whenever you're ready, we can move to the next part.";
 
+      if (voiceState.audioDefaultEnabled) {
+        onPlayAudio(reply, "COCO");
+      }
       setSampleCocoReplies((prev) => ({ ...prev, [sampleIndex]: reply }));
+
       onLogEvidence({
         kind: "coco_response",
         stage: `Check-In Sample ${sampleIndex + 1}`,
@@ -298,70 +339,98 @@ export function CheckInView({
         model: res.model,
         latencyMs: res.latencyMs,
         cocoText: reply,
-        transcriptAttemptId: attemptId,
+        ...(participationMode === "recorded" ? { transcriptAttemptId: attemptId } : {}),
       });
-
-      if (voiceState.audioDefaultEnabled) {
-        onPlayAudio(reply, "COCO");
-      }
     } finally {
       setBusy(false);
+      setThinkingLabel(null);
     }
   };
 
-  const handleConversationTurn = async (
-    blob: Blob | null,
-    durationSeconds: number,
-    mimeType: string | null,
-    runAnalysis: boolean,
-    typedText: string | null
-  ) => {
+  const handleConversationTurn = async (params: {
+    participationMode: "recorded" | "spoken_unrecorded" | "typed_only";
+    blob: Blob | null;
+    durationSeconds: number;
+    mimeType: string | null;
+    runAnalysis: boolean;
+    learnerText: string | null;
+  }) => {
+    const { participationMode, blob, durationSeconds, mimeType, runAnalysis, learnerText } =
+      params;
+
+    const priorTurnsSnapshot = [...conversationTurns];
+    const learnerTurnIndex =
+      priorTurnsSnapshot.filter((t) => t.speaker === "learner").length + 1;
+    const isClosingTurn = learnerTurnIndex >= 6;
+    const attemptId = `att_ci_conv_t${learnerTurnIndex}_${crypto.randomUUID().slice(0, 6)}`;
+
+    const immediateLearnerMessage =
+      learnerText ||
+      (participationMode === "recorded"
+        ? `(Spoken voice turn • ${durationSeconds.toFixed(1)}s)`
+        : "(Spoke aloud without recording)");
+
+    // Priority 5: Display learner's submitted conversation turn immediately
+    setConversationTurns((prev) => [
+      ...prev,
+      {
+        speaker: "learner",
+        message: immediateLearnerMessage,
+        learnerTranscript: learnerText,
+      },
+    ]);
+
     setBusy(true);
+    setThinkingLabel("Colleague is thinking of a reply…");
     setErrorBanner(null);
 
     try {
-      const learnerTurnIndex = conversationTurns.filter((t) => t.speaker === "learner").length + 1;
-      const isClosingTurn = learnerTurnIndex >= 6;
-      const attemptId = `att_ci_conv_t${learnerTurnIndex}_${crypto.randomUUID().slice(0, 6)}`;
+      if (participationMode === "recorded" || participationMode === "spoken_unrecorded") {
+        const attempt: SpeechAttempt = {
+          id: attemptId,
+          userId: uid,
+          sourceContext: "check_in_conversation",
+          activityOrSectionId: `check_in_sample_4_turn_${learnerTurnIndex}`,
+          promptText:
+            priorTurnsSnapshot[priorTurnsSnapshot.length - 1]?.message ||
+            CHECK_IN_PARTNER_OPENER,
+          durationSeconds: blob ? durationSeconds : 0,
+          hasLocalAudio: Boolean(blob),
+          analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
+          disfluentTranscript: learnerText,
+          selfReportParticipationNote: participationMode,
+          participationStatus: participationMode,
+          isCurrentSession: true,
+          createdAtIso: new Date().toISOString(),
+        };
+        await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
+        setConversationAttemptId(attemptId);
+        onResetMic();
 
-      const attempt: SpeechAttempt = {
-        id: attemptId,
-        userId: uid,
-        sourceContext: "check_in_conversation",
-        activityOrSectionId: `check_in_sample_4_turn_${learnerTurnIndex}`,
-        promptText:
-          conversationTurns[conversationTurns.length - 1]?.message || CHECK_IN_PARTNER_OPENER,
-        durationSeconds: blob ? durationSeconds : 0,
-        hasLocalAudio: Boolean(blob),
-        analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
-        disfluentTranscript: typedText,
-        createdAtIso: new Date().toISOString(),
-      };
-      await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
-      setConversationAttemptId(attemptId);
-      onResetMic();
-
-      if (blob && runAnalysis) {
-        await onRunSpeechAnalysis(
-          attempt,
-          blob,
-          mimeType || "audio/webm",
-          "assessment_analysis"
-        );
+        if (blob && runAnalysis) {
+          await onRunSpeechAnalysis(
+            attempt,
+            blob,
+            mimeType || "audio/webm",
+            "assessment_analysis"
+          );
+        }
+      } else {
+        onResetMic();
       }
 
       const prompt = buildPartnerReplyPrompt({
         scenario: "Casual catch-up chat with a friendly colleague about your week.",
         partnerRole: "Friendly colleague",
         communicationPurpose: "Have an ordinary unhurried back-and-forth catch-up.",
-        history: conversationTurns,
-        learnerTextInput: typedText,
+        history: priorTurnsSnapshot,
+        learnerTextInput: learnerText,
         hasAudio: Boolean(blob),
         isClosingTurn,
       });
 
       const payload: Record<string, unknown> = { prompt };
-      if (!typedText && blob && blob.size <= MAX_WEB_AUDIO_UPLOAD_BYTES) {
+      if (!learnerText && blob && blob.size <= MAX_WEB_AUDIO_UPLOAD_BYTES) {
         payload.audioBase64 = await blobToBase64(blob);
         payload.mimeType = mimeType || "audio/webm";
       }
@@ -379,20 +448,26 @@ export function CheckInView({
         return;
       }
 
-      let extractedTranscript = typedText;
+      let extractedTranscript = learnerText;
       let partnerReply = res.text;
       const tMatch = /TRANSCRIPT:\s*([\s\S]*?)\nREPLY:\s*([\s\S]*)/i.exec(res.text);
       if (tMatch) {
-        extractedTranscript = tMatch[1].trim() || typedText;
+        extractedTranscript = tMatch[1].trim() || learnerText;
         partnerReply = tMatch[2].trim();
       }
-      partnerReply = sanitizeCocoOutput(partnerReply) || "Thanks for sharing that—it was good catching up.";
+      partnerReply =
+        sanitizeCocoOutput(partnerReply) ||
+        "Thanks for sharing that—it was good catching up.";
 
-      setConversationTurns((prev) => [
-        ...prev,
+      if (voiceState.audioDefaultEnabled) {
+        onPlayAudio(partnerReply, "ROLEPLAY_PARTNER");
+      }
+
+      setConversationTurns([
+        ...priorTurnsSnapshot,
         {
           speaker: "learner",
-          message: extractedTranscript || "(Spoken voice turn)",
+          message: extractedTranscript || immediateLearnerMessage,
           learnerTranscript: extractedTranscript,
         },
         { speaker: "partner", message: partnerReply },
@@ -405,58 +480,77 @@ export function CheckInView({
       onLogEvidence({
         kind: "coco_response",
         stage: `Check-In Sample 4 Turn ${learnerTurnIndex}`,
-        summary: `Partner (Orus) replied in live conversation turn ${learnerTurnIndex}`,
+        summary: `Partner replied in live conversation turn ${learnerTurnIndex}`,
         model: res.model,
         latencyMs: res.latencyMs,
         cocoText: partnerReply,
-        transcriptAttemptId: attemptId,
+        ...(participationMode === "recorded" ? { transcriptAttemptId: attemptId } : {}),
       });
-
-      if (voiceState.audioDefaultEnabled) {
-        onPlayAudio(partnerReply, "ROLEPLAY_PARTNER");
-      }
     } finally {
       setBusy(false);
+      setThinkingLabel(null);
     }
   };
 
-  const handleShiftSubmission = async (
-    blob: Blob | null,
-    durationSeconds: number,
-    mimeType: string | null,
-    runAnalysis: boolean,
-    typedText: string | null
-  ) => {
+  const handleShiftSubmission = async (params: {
+    participationMode: "recorded" | "spoken_unrecorded" | "typed_only";
+    blob: Blob | null;
+    durationSeconds: number;
+    mimeType: string | null;
+    runAnalysis: boolean;
+    learnerText: string | null;
+  }) => {
+    const { participationMode, blob, durationSeconds, mimeType, runAnalysis, learnerText } =
+      params;
     setBusy(true);
+    setThinkingLabel("Saving your shift experiment…");
     setErrorBanner(null);
     try {
       const attemptId = `att_ci_shift_${crypto.randomUUID().slice(0, 8)}`;
-      const attempt: SpeechAttempt = {
-        id: attemptId,
-        userId: uid,
-        sourceContext: "check_in_shift_experiment",
-        activityOrSectionId: "check_in_stage_4_shift",
-        promptText: checkInShiftCue(speechTermMode),
-        durationSeconds: blob ? durationSeconds : 0,
-        hasLocalAudio: Boolean(blob),
-        analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
-        disfluentTranscript: typedText,
-        createdAtIso: new Date().toISOString(),
-      };
-      await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
-      setShiftAttemptId(attemptId);
-      onResetMic();
+      const summary =
+        participationMode === "recorded"
+          ? `Recorded ${durationSeconds.toFixed(1)}s shift experiment clip`
+          : participationMode === "spoken_unrecorded"
+            ? learnerText
+              ? `Spoke aloud without recording: "${learnerText}"`
+              : "Spoke shift experiment aloud without recording"
+            : `Written shift reflection (not a spoken recording): "${learnerText || ""}"`;
+      setShiftCompletedSummary(summary);
 
-      if (blob && runAnalysis) {
-        await onRunSpeechAnalysis(
-          attempt,
-          blob,
-          mimeType || "audio/webm",
-          "assessment_analysis"
-        );
+      if (participationMode === "recorded" || participationMode === "spoken_unrecorded") {
+        const attempt: SpeechAttempt = {
+          id: attemptId,
+          userId: uid,
+          sourceContext: "check_in_shift_experiment",
+          activityOrSectionId: "check_in_stage_4_shift",
+          promptText: checkInShiftCue(speechTermMode),
+          durationSeconds: blob ? durationSeconds : 0,
+          hasLocalAudio: Boolean(blob),
+          analysisStatus: blob ? (runAnalysis ? "pending" : "not_requested") : "not_requested",
+          disfluentTranscript: learnerText,
+          selfReportParticipationNote: participationMode,
+          participationStatus: participationMode,
+          isCurrentSession: true,
+          createdAtIso: new Date().toISOString(),
+        };
+        await onSaveAttemptClip(attempt, blob || undefined, mimeType || undefined);
+        setShiftAttemptId(attemptId);
+        onResetMic();
+
+        if (blob && runAnalysis) {
+          await onRunSpeechAnalysis(
+            attempt,
+            blob,
+            mimeType || "audio/webm",
+            "assessment_analysis"
+          );
+        }
+      } else {
+        onResetMic();
       }
     } finally {
       setBusy(false);
+      setThinkingLabel(null);
     }
   };
 
@@ -464,12 +558,13 @@ export function CheckInView({
     setStage("debrief");
     updateJourneyStage("debrief");
     setBusy(true);
+    setThinkingLabel("Coco is thinking and preparing your Check-In debrief…");
     setErrorBanner(null);
     setDebriefVisited(true);
 
     try {
       const prompt = buildCheckInDebriefPrompt({
-        attempts,
+        attempts: attempts.filter((a) => a.isCurrentSession !== false),
         events,
         goals: selectedGoals,
         situations: selectedSituations,
@@ -492,7 +587,11 @@ export function CheckInView({
 
       const clean =
         sanitizeCocoOutput(res.text) ||
-        "Thank you for walking through these speaking samples today. A helpful next step is Module P01, Your Identity With Your Speech, where we look gently at single speaking moments versus broader labels.";
+        "Thank you for walking through these speaking samples today. A helpful next step is Module 1, Your Identity With Your Speech, where we look gently at single speaking moments versus broader labels.";
+
+      if (voiceState.audioDefaultEnabled) {
+        onPlayAudio(clean, "COCO");
+      }
       setDebriefText(clean);
       await onCompleteCheckIn(clean);
 
@@ -504,20 +603,23 @@ export function CheckInView({
         latencyMs: res.latencyMs,
         cocoText: clean,
       });
-
-      if (voiceState.audioDefaultEnabled) {
-        onPlayAudio(clean, "COCO");
-      }
     } finally {
       setBusy(false);
+      setThinkingLabel(null);
     }
   };
 
   const activeSample = CHECK_IN_SAMPLES[sampleIndex];
   const currentSampleAttemptId = sampleAttemptIds[sampleIndex];
-  const currentSampleAttempt = attempts.find((a) => a.id === currentSampleAttemptId);
-  const shiftAttempt = attempts.find((a) => a.id === shiftAttemptId);
-  const convAttempt = attempts.find((a) => a.id === conversationAttemptId);
+  const currentSampleAttempt = attempts.find(
+    (a) => a.id === currentSampleAttemptId && a.isCurrentSession !== false
+  );
+  const shiftAttempt = attempts.find(
+    (a) => a.id === shiftAttemptId && a.isCurrentSession !== false
+  );
+  const convAttempt = attempts.find(
+    (a) => a.id === conversationAttemptId && a.isCurrentSession !== false
+  );
 
   const debriefSpeakingNow =
     Boolean(debriefText) &&
@@ -531,7 +633,7 @@ export function CheckInView({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emeraldBorder bg-emeraldSurface px-4 py-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-mintAccent">
-            Flow A • Free Speaking Check-In
+            Free Speaking Check-In
           </p>
           <p className="text-sm font-medium text-creamInk">
             {stage === "orientation" && "Step 1 of 5 • Orientation"}
@@ -564,7 +666,6 @@ export function CheckInView({
         <div className="space-y-4">
           <CocoAudioPanel
             title="Coco's Welcome to Free Check-In"
-            badge="Pre-generated Sulafat"
             text={CHECK_IN_ORIENTATION_CUE}
             voiceState={voiceState}
             onPlay={onPlayAudio}
@@ -601,7 +702,6 @@ export function CheckInView({
         <div className="space-y-5">
           <CocoAudioPanel
             title="Where Speaking Shows Up in Your Week"
-            badge="Pre-generated Sulafat"
             text={CHECK_IN_CONTEXT_CUE}
             voiceState={voiceState}
             onPlay={onPlayAudio}
@@ -621,7 +721,7 @@ export function CheckInView({
                     onClick={() => onChangeSpeechTermMode(term)}
                     className={`rounded-full px-4 py-1.5 text-xs font-medium capitalize ${
                       speechTermMode === term
-                        ? "bg-sagePill font-semibold text-sageInk"
+                        ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                         : "border border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
                     }`}
                   >
@@ -643,7 +743,7 @@ export function CheckInView({
                     onClick={() => toggleChip(selectedSituations, opt, setSelectedSituations)}
                     className={`rounded-full px-3.5 py-1.5 text-xs transition ${
                       selectedSituations.includes(opt)
-                        ? "bg-mintAccent font-semibold text-sageInk"
+                        ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                         : "border border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
                     }`}
                   >
@@ -688,7 +788,7 @@ export function CheckInView({
                     onClick={() => toggleChip(selectedGoals, opt, setSelectedGoals)}
                     className={`rounded-full px-3.5 py-1.5 text-xs transition ${
                       selectedGoals.includes(opt)
-                        ? "bg-mintAccent font-semibold text-sageInk"
+                        ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                         : "border border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
                     }`}
                   >
@@ -763,7 +863,7 @@ export function CheckInView({
                 }}
                 className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${
                   sampleIndex === idx
-                    ? "bg-sagePill font-semibold text-sageInk"
+                    ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                     : "border border-emeraldBorder text-mutedSage hover:text-creamInk"
                 }`}
               >
@@ -774,7 +874,6 @@ export function CheckInView({
 
           <CocoAudioPanel
             title={activeSample.title}
-            badge="Pre-generated Sulafat"
             text={activeSample.cocoSpokenInvitation}
             voiceState={voiceState}
             onPlay={onPlayAudio}
@@ -797,29 +896,95 @@ export function CheckInView({
           {/* Samples 1-3 */}
           {activeSample.index < 3 ? (
             <div className="space-y-4">
-              <MicSpeakingPanel
-                recordingState={micState}
-                audioConsentAuthorized={audioConsentAuthorized}
-                onRequestConsent={() => onRequestConsent(onStartMic)}
-                onBeforeStart={onBeforeStartMic}
-                onStartRecording={onStartMic}
-                onStopRecording={onStopMic}
-                onResetRecording={onResetMic}
-                busy={busy}
-                isGuestMode={isGuestMode}
-                submitLabel="Submit Sample to Coco"
-                onSubmitAudio={(blob, dur, mime, runAna) =>
-                  handleSampleSubmission(blob, dur, mime, runAna, null)
-                }
-                onSubmitTypedFallback={(txt) =>
-                  handleSampleSubmission(null, 0, null, false, txt)
-                }
-              />
+              {!sampleCocoReplies[sampleIndex] || showSampleRecorderAgain[sampleIndex] ? (
+                <MicSpeakingPanel
+                  recordingState={micState}
+                  audioConsentAuthorized={audioConsentAuthorized}
+                  onRequestConsent={() => onRequestConsent(onStartMic)}
+                  onBeforeStart={onBeforeStartMic}
+                  onStartRecording={onStartMic}
+                  onStopRecording={onStopMic}
+                  onResetRecording={onResetMic}
+                  busy={busy}
+                  isGuestMode={isGuestMode}
+                  submitLabel="Submit Sample to Coco"
+                  onSubmitAudio={(blob, dur, mime, runAna) =>
+                    handleSampleSubmission({
+                      participationMode: "recorded",
+                      blob,
+                      durationSeconds: dur,
+                      mimeType: mime,
+                      runAnalysis: runAna,
+                      learnerText: null,
+                    })
+                  }
+                  onConfirmSpokenWithoutRecording={(note) =>
+                    handleSampleSubmission({
+                      participationMode: "spoken_unrecorded",
+                      blob: null,
+                      durationSeconds: 0,
+                      mimeType: null,
+                      runAnalysis: false,
+                      learnerText: note || null,
+                    })
+                  }
+                  onSubmitTypedFallback={(txt) =>
+                    handleSampleSubmission({
+                      participationMode: "typed_only",
+                      blob: null,
+                      durationSeconds: 0,
+                      mimeType: null,
+                      runAnalysis: false,
+                      learnerText: txt,
+                    })
+                  }
+                  secondarySkipAction={{
+                    label: "Skip to Next Sample",
+                    onClick: () => {
+                      onResetMic();
+                      const nextIdx = sampleIndex + 1;
+                      setSampleIndex(nextIdx);
+                      updateJourneyStage("samples", nextIdx);
+                      if (voiceState.audioDefaultEnabled) {
+                        onPlayAudio(CHECK_IN_SAMPLES[nextIdx].cocoSpokenInvitation, "COCO");
+                      }
+                    },
+                  }}
+                />
+              ) : (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      setShowSampleRecorderAgain((prev) => ({ ...prev, [sampleIndex]: true }))
+                    }
+                    className="inline-flex items-center gap-1 text-xs text-mintAccent underline hover:opacity-90"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Record another take for Sample {sampleIndex + 1} (optional)
+                  </button>
+                </div>
+              )}
+
+              {sampleSubmittedNotes[sampleIndex] ? (
+                <div
+                  data-testid="learner-submitted-turn"
+                  className="ml-6 rounded-2xl border border-emeraldStrongBorder bg-emeraldField px-4 py-2.5 text-sm text-creamInk"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-mintAccent">
+                    Your Sample {sampleIndex + 1} Turn
+                  </p>
+                  <p className="mt-0.5">{sampleSubmittedNotes[sampleIndex]}</p>
+                </div>
+              ) : null}
+
+              {busy && thinkingLabel ? <CocoThinkingCard label={thinkingLabel} /> : null}
 
               {sampleCocoReplies[sampleIndex] ? (
                 <CocoAudioPanel
                   title="Coco's Reply"
-                  badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
+                  badge={isGuestMode ? "Simulated (Guest Mode)" : undefined}
                   text={sampleCocoReplies[sampleIndex]}
                   voiceState={voiceState}
                   onPlay={onPlayAudio}
@@ -827,7 +992,7 @@ export function CheckInView({
                 />
               ) : null}
 
-              {currentSampleAttempt ? (
+              {currentSampleAttempt && currentSampleAttempt.participationStatus === "recorded" ? (
                 <div className="space-y-3 rounded-2xl border border-emeraldBorder bg-emeraldSurface p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs font-medium text-creamInk">
@@ -841,7 +1006,7 @@ export function CheckInView({
                           onClick={() => onUpdateAttemptEffort(currentSampleAttempt.id, n)}
                           className={`h-8 w-8 rounded-full text-xs font-semibold ${
                             currentSampleAttempt.selfReportEffort === n
-                              ? "bg-mintAccent text-sageInk"
+                              ? "border border-mintAccent bg-emeraldField text-mintAccent"
                               : "border border-emeraldStrongBorder text-softMintInk hover:bg-emeraldRaised"
                           }`}
                         >
@@ -873,49 +1038,72 @@ export function CheckInView({
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onResetMic();
-                    const nextIdx = sampleIndex + 1;
-                    setSampleIndex(nextIdx);
-                    updateJourneyStage("samples", nextIdx);
-                    if (voiceState.audioDefaultEnabled) {
-                      onPlayAudio(CHECK_IN_SAMPLES[nextIdx].cocoSpokenInvitation, "COCO");
-                    }
-                  }}
-                  className="inline-flex min-h-[46px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
-                >
-                  {sampleCocoReplies[sampleIndex] ? "Next Sample" : "Skip to Next Sample"}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
+              {sampleCocoReplies[sampleIndex] ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResetMic();
+                      const nextIdx = sampleIndex + 1;
+                      setSampleIndex(nextIdx);
+                      updateJourneyStage("samples", nextIdx);
+                      if (voiceState.audioDefaultEnabled) {
+                        onPlayAudio(CHECK_IN_SAMPLES[nextIdx].cocoSpokenInvitation, "COCO");
+                      }
+                    }}
+                    className="inline-flex min-h-[46px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
+                  >
+                    Next Sample
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             /* Sample 4: Live Two-Way Conversation */
             <div className="space-y-4">
               {!conversationActive ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConversationActive(true);
-                    setConversationTurns([{ speaker: "partner", message: CHECK_IN_PARTNER_OPENER }]);
-                    if (voiceState.audioDefaultEnabled) {
-                      onPlayAudio(CHECK_IN_PARTNER_OPENER, "ROLEPLAY_PARTNER");
-                    }
-                  }}
-                  className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Start Live Conversation (Partner: Orus)
-                </button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConversationActive(true);
+                      setConversationTurns([
+                        { speaker: "partner", message: CHECK_IN_PARTNER_OPENER },
+                      ]);
+                      if (voiceState.audioDefaultEnabled) {
+                        onPlayAudio(CHECK_IN_PARTNER_OPENER, "ROLEPLAY_PARTNER");
+                      }
+                    }}
+                    className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Start Live Conversation
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onPauseAudio();
+                      onResetMic();
+                      setStage("shift");
+                      updateJourneyStage("shift");
+                      if (voiceState.audioDefaultEnabled) {
+                        onPlayAudio(checkInShiftCue(speechTermMode), "COCO");
+                      }
+                    }}
+                    className="text-xs text-mutedSage underline hover:text-creamInk"
+                  >
+                    Skip to Purpose-Shift Experiment
+                  </button>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="space-y-3 rounded-2xl border border-emeraldBorder bg-emeraldSurface p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold uppercase tracking-wider text-warmGold">
-                        Conversation History ({conversationTurns.filter((t) => t.speaker === "learner").length}/6 turns)
+                        Conversation History (
+                        {conversationTurns.filter((t) => t.speaker === "learner").length}/6 turns)
                       </p>
                       {!conversationEnded ? (
                         <button
@@ -923,7 +1111,7 @@ export function CheckInView({
                           onClick={() => setConversationEnded(true)}
                           className="rounded-full border border-emeraldStrongBorder px-3 py-1 text-xs text-mutedSage hover:text-creamInk"
                         >
-                          Wrap Up Early
+                          Wrap Up Conversation
                         </button>
                       ) : null}
                     </div>
@@ -933,7 +1121,7 @@ export function CheckInView({
                         t.speaker === "partner" ? (
                           <CocoAudioPanel
                             key={i}
-                            title="Colleague (Orus)"
+                            title="Colleague"
                             badge={
                               isGuestMode && i > 0 ? "Simulated Partner (Guest Mode)" : undefined
                             }
@@ -946,6 +1134,7 @@ export function CheckInView({
                         ) : (
                           <div
                             key={i}
+                            data-testid="learner-submitted-turn"
                             className="ml-8 rounded-2xl border border-emeraldStrongBorder bg-emeraldField px-4 py-2.5 text-sm text-creamInk"
                           >
                             <p className="text-[10px] font-semibold uppercase text-mintAccent">
@@ -955,6 +1144,9 @@ export function CheckInView({
                           </div>
                         )
                       )}
+                      {busy && thinkingLabel ? (
+                        <CocoThinkingCard label={thinkingLabel} />
+                      ) : null}
                     </div>
                   </div>
 
@@ -971,15 +1163,68 @@ export function CheckInView({
                       isGuestMode={isGuestMode}
                       submitLabel="Send Reply to Colleague"
                       onSubmitAudio={(blob, dur, mime, runAna) =>
-                        handleConversationTurn(blob, dur, mime, runAna, null)
+                        handleConversationTurn({
+                          participationMode: "recorded",
+                          blob,
+                          durationSeconds: dur,
+                          mimeType: mime,
+                          runAnalysis: runAna,
+                          learnerText: null,
+                        })
+                      }
+                      onConfirmSpokenWithoutRecording={(note) =>
+                        handleConversationTurn({
+                          participationMode: "spoken_unrecorded",
+                          blob: null,
+                          durationSeconds: 0,
+                          mimeType: null,
+                          runAnalysis: false,
+                          learnerText: note || null,
+                        })
                       }
                       onSubmitTypedFallback={(txt) =>
-                        handleConversationTurn(null, 0, null, false, txt)
+                        handleConversationTurn({
+                          participationMode: "typed_only",
+                          blob: null,
+                          durationSeconds: 0,
+                          mimeType: null,
+                          runAnalysis: false,
+                          learnerText: txt,
+                        })
                       }
+                      secondarySkipAction={{
+                        label: "Finish conversation & continue to Purpose-Shift",
+                        onClick: () => {
+                          onPauseAudio();
+                          onResetMic();
+                          setStage("shift");
+                          updateJourneyStage("shift");
+                          if (voiceState.audioDefaultEnabled) {
+                            onPlayAudio(checkInShiftCue(speechTermMode), "COCO");
+                          }
+                        },
+                      }}
                     />
-                  ) : null}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onPauseAudio();
+                        onResetMic();
+                        setStage("shift");
+                        updateJourneyStage("shift");
+                        if (voiceState.audioDefaultEnabled) {
+                          onPlayAudio(checkInShiftCue(speechTermMode), "COCO");
+                        }
+                      }}
+                      className="inline-flex min-h-[46px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
+                    >
+                      Continue to Purpose-Shift Experiment
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  )}
 
-                  {convAttempt ? (
+                  {convAttempt && convAttempt.participationStatus === "recorded" ? (
                     <AcousticMirrorPanel
                       attempt={convAttempt}
                       events={events}
@@ -991,23 +1236,6 @@ export function CheckInView({
                   ) : null}
                 </div>
               )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  onPauseAudio();
-                  onResetMic();
-                  setStage("shift");
-                  updateJourneyStage("shift");
-                  if (voiceState.audioDefaultEnabled) {
-                    onPlayAudio(checkInShiftCue(speechTermMode), "COCO");
-                  }
-                }}
-                className="inline-flex min-h-[46px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90"
-              >
-                Continue to Purpose-Shift Experiment
-                <ArrowRight className="h-4 w-4" />
-              </button>
             </div>
           )}
         </div>
@@ -1018,33 +1246,72 @@ export function CheckInView({
         <div className="space-y-5">
           <CocoAudioPanel
             title="Gentle Purpose-Shift Experiment"
-            badge="Pre-generated Sulafat"
             text={checkInShiftCue(speechTermMode)}
             voiceState={voiceState}
             onPlay={onPlayAudio}
             onPause={onPauseAudio}
           />
 
-          <MicSpeakingPanel
-            recordingState={micState}
-            audioConsentAuthorized={audioConsentAuthorized}
-            onRequestConsent={() => onRequestConsent(onStartMic)}
-            onBeforeStart={onBeforeStartMic}
-            onStartRecording={onStartMic}
-            onStopRecording={onStopMic}
-            onResetRecording={onResetMic}
-            busy={busy}
-            isGuestMode={isGuestMode}
-            submitLabel="Save Experiment Clip"
-            onSubmitAudio={(blob, dur, mime, runAna) =>
-              handleShiftSubmission(blob, dur, mime, runAna, null)
-            }
-            onSubmitTypedFallback={(txt) =>
-              handleShiftSubmission(null, 0, null, false, txt)
-            }
-          />
+          {!shiftCompletedSummary ? (
+            <MicSpeakingPanel
+              recordingState={micState}
+              audioConsentAuthorized={audioConsentAuthorized}
+              onRequestConsent={() => onRequestConsent(onStartMic)}
+              onBeforeStart={onBeforeStartMic}
+              onStartRecording={onStartMic}
+              onStopRecording={onStopMic}
+              onResetRecording={onResetMic}
+              busy={busy}
+              isGuestMode={isGuestMode}
+              submitLabel="Save Experiment Clip"
+              onSubmitAudio={(blob, dur, mime, runAna) =>
+                handleShiftSubmission({
+                  participationMode: "recorded",
+                  blob,
+                  durationSeconds: dur,
+                  mimeType: mime,
+                  runAnalysis: runAna,
+                  learnerText: null,
+                })
+              }
+              onConfirmSpokenWithoutRecording={(note) =>
+                handleShiftSubmission({
+                  participationMode: "spoken_unrecorded",
+                  blob: null,
+                  durationSeconds: 0,
+                  mimeType: null,
+                  runAnalysis: false,
+                  learnerText: note || null,
+                })
+              }
+              onSubmitTypedFallback={(txt) =>
+                handleShiftSubmission({
+                  participationMode: "typed_only",
+                  blob: null,
+                  durationSeconds: 0,
+                  mimeType: null,
+                  runAnalysis: false,
+                  learnerText: txt,
+                })
+              }
+              secondarySkipAction={{
+                label: "Skip recording and go to Debrief",
+                onClick: generateDebrief,
+              }}
+            />
+          ) : (
+            <div
+              data-testid="learner-submitted-turn"
+              className="ml-6 rounded-2xl border border-emeraldStrongBorder bg-emeraldField px-4 py-2.5 text-sm text-creamInk"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-mintAccent">
+                Purpose-Shift Experiment
+              </p>
+              <p className="mt-0.5">{shiftCompletedSummary}</p>
+            </div>
+          )}
 
-          {shiftAttempt ? (
+          {shiftAttempt && shiftAttempt.participationStatus === "recorded" ? (
             <AcousticMirrorPanel
               attempt={shiftAttempt}
               events={events}
@@ -1071,7 +1338,7 @@ export function CheckInView({
                   onClick={() => setShiftFeeling(opt)}
                   className={`rounded-full px-3.5 py-1.5 text-xs ${
                     shiftFeeling === opt
-                      ? "bg-mintAccent font-semibold text-sageInk"
+                      ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                       : "border border-emeraldStrongBorder text-softMintInk"
                   }`}
                 >
@@ -1088,15 +1355,17 @@ export function CheckInView({
             />
           </div>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={generateDebrief}
-            className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90 disabled:opacity-50"
-          >
-            <Sparkles className="h-4 w-4" />
-            Generate Coco&rsquo;s Check-In Debrief
-          </button>
+          {shiftCompletedSummary || shiftFeeling || shiftNote.trim() ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={generateDebrief}
+              className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk hover:opacity-90 disabled:opacity-50"
+            >
+              <Sparkles className="h-4 w-4" />
+              Generate Coco&rsquo;s Check-In Debrief
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -1104,15 +1373,16 @@ export function CheckInView({
       {stage === "debrief" ? (
         <div className="space-y-5">
           {busy && !debriefText ? (
-            <div className="rounded-2xl border border-warmGold/40 bg-emeraldSurface p-5 text-sm text-warmGold">
-              Coco is reviewing your recorded check-in evidence and preparing a grounded debrief…
-            </div>
+            <CocoThinkingCard
+              label={thinkingLabel || "Coco is thinking…"}
+              detail="Reviewing what you shared across your Check-In samples."
+            />
           ) : null}
 
           {debriefText ? (
             <CocoAudioPanel
               title="Coco's Check-In Debrief"
-              badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
+              badge={isGuestMode ? "Simulated (Guest Mode)" : undefined}
               text={debriefText}
               voiceState={voiceState}
               onPlay={onPlayAudio}
@@ -1125,14 +1395,14 @@ export function CheckInView({
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-mintAccent" />
               <div className="space-y-1 text-xs text-softMintInk">
                 <p className="font-semibold text-creamInk">
-                  Recommended Next Step: Module P01 — Your Identity With Your Speech
+                  Recommended Next Step: Module 1 — Your Identity With Your Speech
                 </p>
                 <p className="text-mutedSage">
                   {debriefSpeakingNow
-                    ? "The Begin P01 button unlocks automatically when Coco finishes speaking the debrief (or press Pause above to read at your own pace)."
+                    ? "The Begin Module 1 button unlocks automatically when Coco finishes speaking the debrief (or press Pause Audio above to read at your own pace)."
                     : isGuestMode
-                      ? "Guest Check-In completed in local session memory (not written to Firestore). Ready for P01 whenever you choose."
-                      : "Check-In saved to your isolated test profile. Ready for P01 whenever you choose."}
+                      ? "Guest Check-In completed in this browser session. Ready for Module 1 whenever you choose."
+                      : "Check-In saved to your learner profile. Ready for Module 1 whenever you choose."}
                 </p>
               </div>
             </div>
@@ -1143,9 +1413,7 @@ export function CheckInView({
               onClick={onGoToP01}
               className="mt-4 inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-2.5 text-sm font-semibold text-sageInk transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {debriefSpeakingNow
-                ? "Listening to Coco's Debrief…"
-                : "Begin Module P01"}
+              {debriefSpeakingNow ? "Listening to Coco's Debrief…" : "Begin Module 1"}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>

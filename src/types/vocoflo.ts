@@ -26,6 +26,21 @@ export type SpeechEventReviewState =
   | "dismissed"
   | "corrected";
 
+export type SpeakingParticipationStatus =
+  | "recorded"
+  | "spoken_unrecorded"
+  | "typed_only"
+  | "skipped"
+  | "mic_unavailable";
+
+export interface ConversationTurn {
+  id: string;
+  role: "learner" | "coach";
+  text: string;
+  stageLabel?: string;
+  timestampIso: string;
+}
+
 export interface LearnerProfile {
   userId: string;
   displayName: string;
@@ -65,6 +80,9 @@ export interface SpeechAttempt {
   analysisError?: string | null;
   selfReportEffort?: number | null;
   selfReportAvoidanceNote?: string | null;
+  selfReportParticipationNote?: string | null;
+  participationStatus?: SpeakingParticipationStatus;
+  isCurrentSession?: boolean;
   createdAtIso: string;
 }
 
@@ -158,7 +176,9 @@ export interface JourneyScope {
   unreachedStepTitles: string[];
   reachedSectionSummaries: Array<{ id: string; heading: string; narration: string }>;
   recentAttempts: SpeechAttempt[];
+  currentSessionAttempts?: SpeechAttempt[];
   speechEvents: SpeechEvent[];
   sharedMemories: CoachMemoryItem[];
+  recentConversationTurns?: ConversationTurn[];
   speechTermMode: SpeechTermMode;
 }

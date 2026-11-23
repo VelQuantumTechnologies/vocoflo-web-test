@@ -16,10 +16,11 @@ import {
   LogIn,
   LogOut,
   MessageCircleQuestion,
-  ShieldAlert,
+  Play,
   SlidersHorizontal,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import {
   buildLessonQaPrompt,
@@ -36,7 +37,6 @@ import {
   ensureWebAppCheck,
   getFirebaseClientAuth,
   getGoogleProvider,
-  getWebFirebaseStatus,
 } from "@/lib/firebase/client";
 import {
   deleteCoachMemory,
@@ -58,6 +58,7 @@ import {
 } from "@/lib/speech/validation";
 import type {
   CoachMemoryItem,
+  ConversationTurn,
   EvidenceLogEntry,
   JourneyScope,
   LearnerProfile,
@@ -69,6 +70,7 @@ import type {
   SpeechEventReviewState,
   SpeechEventType,
   SpeechTermMode,
+  VoiceRole,
 } from "@/types/vocoflo";
 import { AskCocoDrawer, type QaExchange } from "./AskCocoDrawer";
 import { CheckInView } from "./CheckInView";
@@ -86,14 +88,20 @@ const ONBOARDING_STEPS = [
   {
     step: 2,
     title: "Speak First, Explore One Idea at a Time",
-    body: "In Module P01, speak naturally before any concept is introduced, then explore separating a single speaking event from a wider verdict about who you are.",
+    body: "In Module 1 (Your Identity With Your Speech), speak naturally before any concept is introduced, then explore separating a single speaking event from a wider verdict about who you are.",
   },
   {
     step: 3,
-    title: "Optional Acoustic Mirror & Evidence Review",
-    body: "Listen back to your clips, confirm or adjust tentative markers anytime, ask Coco questions scoped to your step, and export privacy-conscious evaluation logs.",
+    title: "Optional Acoustic Mirror & Guided Reflection",
+    body: "Listen back to your clips whenever useful, confirm or adjust tentative markers anytime, and ask Coco questions scoped to your current step.",
   },
 ];
+
+interface InterruptedNarration {
+  text: string;
+  role: VoiceRole;
+  stageLabel: string;
+}
 
 export function VocoFloHarness() {
   const guestModeAvailable = useMemo(() => isGuestReviewModeEnabled(), []);
@@ -116,10 +124,9 @@ export function VocoFloHarness() {
   const [attempts, setAttempts] = useState<SpeechAttempt[]>([]);
   const [events, setEvents] = useState<SpeechEvent[]>([]);
   const [p01Progress, setP01Progress] = useState<LessonProgress | null>(null);
-  const [serverTier, setServerTier] = useState<"free_preview" | "cohort_preview">("free_preview");
-  const [monthlyLiveCalls, setMonthlyLiveCalls] = useState(0);
   const [localClips, setLocalClips] = useState<Record<string, LocalAudioClip>>({});
   const [evidenceEntries, setEvidenceEntries] = useState<EvidenceLogEntry[]>([]);
+  const [conversationTurns, setConversationTurns] = useState<ConversationTurn[]>([]);
 
   const [view, setView] = useState<"hub" | "check_in" | "p01">("hub");
   const [introPage, setIntroPage] = useState(0);
@@ -131,8 +138,14 @@ export function VocoFloHarness() {
   const [consentModalOpen, setConsentModalOpen] = useState(false);
   const pendingMicStartRef = useRef<(() => void) | null>(null);
 
-  // Ask Coco Drawer state
+  // Ask Coco Drawer & Audio Interruption state (Priority 2)
   const [askCocoOpen, setAskCocoOpen] = useState(false);
+  const askCocoOpenRef = useRef(false);
+  const [interruptedNarration, setInterruptedNarration] =
+    useState<InterruptedNarration | null>(null);
+  const [showResumeBanner, setShowResumeBanner] = useState(false);
+  const lastLessonAudioRef = useRef<{ text: string; role: VoiceRole } | null>(null);
+
   const [qaExchanges, setQaExchanges] = useState<QaExchange[]>([]);
   const [qaBusy, setQaBusy] = useState(false);
   const [qaError, setQaError] = useState<string | null>(null);
@@ -140,14 +153,12 @@ export function VocoFloHarness() {
 
   // JourneyScope tracking for Ask Coco
   const [activeP01Beat, setActiveP01Beat] = useState<P01BeatId>("p01_beat_1_mirror");
-  const [scopeLabel, setScopeLabel] = useState("Hub & Orientation");
+  const [scopeLabel, setScopeLabel] = useState("Welcome & Orientation");
   const [completedStepTitles, setCompletedStepTitles] = useState<string[]>([]);
   const [unreachedStepTitles, setUnreachedStepTitles] = useState<string[]>([
     "Free Check-In",
-    "P01 Lesson",
+    "Module 1: Your Identity With Your Speech",
   ]);
-
-  const firebaseStatus = useMemo(() => getWebFirebaseStatus(), []);
 
   const appendEvidence = useCallback(
     (entry: Omit<EvidenceLogEntry, "id" | "timestampIso">) => {
@@ -156,6 +167,24 @@ export function VocoFloHarness() {
         {
           ...entry,
           id: `ev_${crypto.randomUUID().slice(0, 8)}`,
+          timestampIso: new Date().toISOString(),
+        },
+      ]);
+    },
+    []
+  );
+
+  const appendConversationTurn = useCallback(
+    (role: "learner" | "coach", text: string, stageLabel?: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      setConversationTurns((prev) => [
+        ...prev,
+        {
+          id: `turn_${crypto.randomUUID().slice(0, 8)}`,
+          role,
+          text: clean,
+          stageLabel,
           timestampIso: new Date().toISOString(),
         },
       ]);
@@ -192,6 +221,76 @@ export function VocoFloHarness() {
     )
   );
 
+  // Priority 2: Lesson audio play helper that tracks the latest lesson narration
+  // and blocks late lesson playback if Ask Coco is currently open.
+  const handlePlayLessonAudio = useCallback(
+    (text: string, role: VoiceRole) => {
+      const clean = text.trim();
+      if (!clean) return;
+      lastLessonAudioRef.current = { text: clean, role };
+      if (askCocoOpenRef.current) {
+        // Never allow a late background lesson response to start playing over Ask Coco
+        setInterruptedNarration({
+          text: clean,
+          role,
+          stageLabel: scopeLabel,
+        });
+        return;
+      }
+      setShowResumeBanner(false);
+      voice.speak(clean, role);
+    },
+    [scopeLabel, voice]
+  );
+
+  // Priority 2: Opening Ask Coco must immediately stop active narration & cancel pending TTS
+  const handleOpenAskCoco = useCallback(() => {
+    const activeText =
+      voice.state.activeText.trim() || lastLessonAudioRef.current?.text || "";
+    const activeRole =
+      voice.state.activeText.trim()
+        ? voice.state.activeRole
+        : lastLessonAudioRef.current?.role || "COCO";
+    const wasActiveOrAvailable =
+      voice.state.speaking ||
+      voice.state.synthesizing ||
+      voice.state.paused ||
+      Boolean(activeText);
+
+    // Immediately stop active playback and invalidate any pending TTS request
+    voice.pauseOrStop();
+
+    if (wasActiveOrAvailable && activeText && (view === "p01" || view === "check_in")) {
+      setInterruptedNarration({
+        text: activeText,
+        role: activeRole,
+        stageLabel: scopeLabel,
+      });
+    }
+    setShowResumeBanner(false);
+    askCocoOpenRef.current = true;
+    setAskCocoOpen(true);
+  }, [scopeLabel, view, voice]);
+
+  // Priority 2: Closing Ask Coco stops any Ask Coco audio, preserves lesson position,
+  // and offers one explicit Resume action if lesson audio was interrupted.
+  const handleCloseAskCoco = useCallback(() => {
+    voice.pauseOrStop();
+    askCocoOpenRef.current = false;
+    setAskCocoOpen(false);
+    if (interruptedNarration && (view === "p01" || view === "check_in")) {
+      setShowResumeBanner(true);
+    }
+  }, [interruptedNarration, view, voice]);
+
+  const handleResumeInterruptedAudio = useCallback(() => {
+    if (!interruptedNarration) return;
+    askCocoOpenRef.current = false;
+    setAskCocoOpen(false);
+    setShowResumeBanner(false);
+    voice.speak(interruptedNarration.text, interruptedNarration.role);
+  }, [interruptedNarration, voice]);
+
   // Clean up dedicated local clip blob URLs on unmount
   const clipUrlsRef = useRef<string[]>([]);
   useEffect(() => {
@@ -212,17 +311,19 @@ export function VocoFloHarness() {
     setAttempts([]);
     setEvents([]);
     setP01Progress(null);
-    setServerTier("free_preview");
-    setMonthlyLiveCalls(0);
     setQaExchanges([]);
+    setConversationTurns([]);
+    setInterruptedNarration(null);
+    setShowResumeBanner(false);
+    lastLessonAudioRef.current = null;
     setQaError(null);
     setEvidenceEntries([]);
     setConsentAuthorized(false);
     setView("hub");
     setIntroPage(0);
-    setScopeLabel("Hub & Orientation");
+    setScopeLabel("Welcome & Orientation");
     setCompletedStepTitles([]);
-    setUnreachedStepTitles(["Free Check-In", "P01 Lesson"]);
+    setUnreachedStepTitles(["Free Check-In", "Module 1: Your Identity With Your Speech"]);
   }, [mic, voice]);
 
   // Initialize Firebase Auth & Web App Check listener
@@ -245,8 +346,6 @@ export function VocoFloHarness() {
           setAttempts([]);
           setEvents([]);
           setP01Progress(null);
-          setServerTier("free_preview");
-          setMonthlyLiveCalls(0);
           setConsentAuthorized(false);
         }
         return;
@@ -264,7 +363,7 @@ export function VocoFloHarness() {
       try {
         const prof = await loadOrCreateLearnerProfile(
           user.uid,
-          user.displayName || user.email?.split("@")[0] || "Test Reviewer"
+          user.displayName || user.email?.split("@")[0] || "Learner"
         );
         const ctx = await loadLearnerContext(user.uid);
         setProfile(prof);
@@ -272,16 +371,14 @@ export function VocoFloHarness() {
         setAttempts(ctx.attempts);
         setEvents(ctx.events);
         setP01Progress(ctx.p01Progress);
-        setServerTier(ctx.serverEntitlementTier);
-        setMonthlyLiveCalls(ctx.monthlyLiveAiCalls);
 
         appendEvidence({
           kind: "ui_event",
           stage: "Auth & Firestore",
-          summary: `Loaded isolated profile (tier=${ctx.serverEntitlementTier}, monthlyLive=${ctx.monthlyLiveAiCalls}, completedCheckIn=${prof.completedCheckIn}, memories=${ctx.memories.length}, attempts=${ctx.attempts.length})`,
+          summary: `Loaded isolated profile (completedCheckIn=${prof.completedCheckIn}, memories=${ctx.memories.length}, historicalAttempts=${ctx.attempts.length})`,
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Could not load Firestore profile.";
+        const msg = err instanceof Error ? err.message : "Could not load learner profile.";
         setAuthError(msg);
         appendEvidence({
           kind: "error",
@@ -310,7 +407,7 @@ export function VocoFloHarness() {
       kind: "ui_event",
       stage: "Guest Review Mode",
       summary:
-        "Entered temporary Guest Review Mode (simulated Coco & speech observations; zero Firestore writes or real AI gateway calls).",
+        "Entered Guest Review Mode (simulated Coco & speech observations; zero Firestore writes or real AI gateway calls).",
     });
   };
 
@@ -326,7 +423,7 @@ export function VocoFloHarness() {
     }
     const auth = getFirebaseClientAuth();
     if (!auth) {
-      setAuthError("Firebase Web configuration is incomplete.");
+      setAuthError("Sign-in configuration is incomplete.");
       return;
     }
     setAuthError(null);
@@ -345,31 +442,39 @@ export function VocoFloHarness() {
 
   const handleSaveAttemptClip = useCallback(
     async (attempt: SpeechAttempt, blob?: Blob, mimeType?: string) => {
-      setAttempts((prev) => [attempt, ...prev]);
+      const taggedAttempt: SpeechAttempt = {
+        ...attempt,
+        isCurrentSession: true,
+      };
+      setAttempts((prev) => [taggedAttempt, ...prev]);
 
       if (blob) {
         const clipUrl = URL.createObjectURL(blob);
         clipUrlsRef.current.push(clipUrl);
         setLocalClips((prev) => ({
           ...prev,
-          [attempt.id]: {
-            attemptId: attempt.id,
-            label: `${attempt.activityOrSectionId} (${attempt.sourceContext})`,
+          [taggedAttempt.id]: {
+            attemptId: taggedAttempt.id,
+            label: `${taggedAttempt.activityOrSectionId} (${taggedAttempt.sourceContext})`,
             blobUrl: clipUrl,
             mimeType: mimeType || blob.type || "audio/webm",
-            durationSeconds: attempt.durationSeconds,
+            durationSeconds: taggedAttempt.durationSeconds,
             byteSize: blob.size,
-            createdAtIso: attempt.createdAtIso,
+            createdAtIso: taggedAttempt.createdAtIso,
           },
         }));
       }
 
-      if (isGuestMode || !authUser) {
+      if (
+        isGuestMode ||
+        !authUser ||
+        taggedAttempt.participationStatus === "typed_only"
+      ) {
         return;
       }
 
       try {
-        await persistSpeechAttempt(attempt);
+        await persistSpeechAttempt(taggedAttempt);
       } catch (err) {
         appendEvidence({
           kind: "error",
@@ -390,7 +495,7 @@ export function VocoFloHarness() {
       purpose: "assessment_analysis" | "lesson_analysis" | "requested_inspection"
     ) => {
       if (blob.size > MAX_WEB_AUDIO_UPLOAD_BYTES) {
-        const msg = "Clip exceeded 2.4 MB browser upload target; try a shorter recording.";
+        const msg = "Clip exceeded 2.4 MB browser upload limit; try a shorter recording.";
         setAttempts((prev) =>
           prev.map((a) =>
             a.id === attempt.id ? { ...a, analysisStatus: "failed", analysisError: msg } : a
@@ -638,6 +743,11 @@ export function VocoFloHarness() {
     [activeUid, appendEvidence, authUser, isGuestMode]
   );
 
+  const currentSessionAttempts = useMemo(
+    () => attempts.filter((a) => a.isCurrentSession !== false),
+    [attempts]
+  );
+
   const journeyScope: JourneyScope = useMemo(
     () => ({
       checkInCompleted: Boolean(profile?.completedCheckIn),
@@ -646,14 +756,18 @@ export function VocoFloHarness() {
       unreachedStepTitles,
       reachedSectionSummaries: view === "p01" ? getP01SectionsForBeat(activeP01Beat) : [],
       recentAttempts: attempts.slice(0, 6),
+      currentSessionAttempts: currentSessionAttempts.slice(0, 6),
       speechEvents: events.slice(0, 20),
       sharedMemories: memories,
+      recentConversationTurns: conversationTurns,
       speechTermMode,
     }),
     [
       activeP01Beat,
       attempts,
       completedStepTitles,
+      conversationTurns,
+      currentSessionAttempts,
       events,
       memories,
       profile?.completedCheckIn,
@@ -664,9 +778,25 @@ export function VocoFloHarness() {
     ]
   );
 
+  // Priority 1 & Priority 5: Immediate learner message display, thinking state,
+  // and full chronological conversation history passed into every Ask Coco request.
   const handleAskCoco = async (question: string) => {
+    const exchangeId = `qa_${crypto.randomUUID().slice(0, 6)}`;
+    const nowIso = new Date().toISOString();
+
+    setQaExchanges((prev) => [
+      ...prev,
+      {
+        id: exchangeId,
+        question,
+        answer: null,
+        status: "thinking",
+        timestampIso: nowIso,
+      },
+    ]);
     setQaBusy(true);
     setQaError(null);
+
     try {
       const prompt = buildLessonQaPrompt(journeyScope, question);
       const res = await callTrustedAiGateway({
@@ -678,18 +808,32 @@ export function VocoFloHarness() {
       });
       if (!res.ok) {
         setQaError(res.errorMessage || "Ask Coco could not reply right now.");
+        setQaExchanges((prev) =>
+          prev.map((ex) => (ex.id === exchangeId ? { ...ex, status: "error" } : ex))
+        );
         return;
       }
+
       const clean = sanitizeCocoOutput(res.text);
-      setQaExchanges((prev) => [
-        ...prev,
-        {
-          id: `qa_${crypto.randomUUID().slice(0, 6)}`,
-          question,
-          answer: clean,
-          timestampIso: new Date().toISOString(),
-        },
-      ]);
+      appendConversationTurn("learner", question, `Ask Coco (${scopeLabel})`);
+      appendConversationTurn("coach", clean, `Ask Coco (${scopeLabel})`);
+
+      if (voice.state.audioDefaultEnabled && clean && askCocoOpenRef.current) {
+        voice.speak(clean, "COCO");
+      }
+
+      setQaExchanges((prev) =>
+        prev.map((ex) =>
+          ex.id === exchangeId
+            ? {
+                ...ex,
+                answer: clean,
+                status: "completed",
+              }
+            : ex
+        )
+      );
+
       appendEvidence({
         kind: "coco_response",
         stage: `Ask Coco (${scopeLabel})`,
@@ -698,35 +842,35 @@ export function VocoFloHarness() {
         latencyMs: res.latencyMs,
         cocoText: clean,
       });
-      if (voice.state.audioDefaultEnabled && clean) {
-        voice.speak(clean, "COCO");
-      }
     } finally {
       setQaBusy(false);
     }
   };
 
+  const handleSyncP01Scope = useCallback(
+    (
+      beatId: P01BeatId,
+      humanStageLabel: string,
+      comp: string[],
+      unr: string[]
+    ) => {
+      setActiveP01Beat(beatId);
+      setScopeLabel(humanStageLabel);
+      setCompletedStepTitles(comp);
+      setUnreachedStepTitles(unr);
+    },
+    []
+  );
+
   return (
     <div className="min-h-screen bg-emeraldCanvas text-creamInk">
-      {/* Staging & Fidelity Top Notice */}
-      <div className="border-b border-emeraldBorder bg-deskGreen px-4 py-2 text-center text-[11px] text-softMintInk/90">
-        {isGuestMode ? (
-          <>
-            <span className="font-semibold text-warmGold">
-              Temporary Guest Review Mode Active
-            </span>{" "}
-            • Simulated Coco responses &amp; speech observations • Zero Firestore writes, zero
-            real AI gateway calls, and zero access to existing learner accounts.
-          </>
-        ) : (
-          <>
-            <span className="font-semibold text-mintAccent">Private Staging Test Harness</span> •
-            Separate Next.js web evaluation environment (`vocoflo-web-test`). Android app &amp;
-            `www.vocoflo.com` remain untouched. Browser audio fidelity has not yet been compared to
-            Android.
-          </>
-        )}
-      </div>
+      {/* Guest Mode Notice (only shown when Guest Mode is active) */}
+      {isGuestMode ? (
+        <div className="border-b border-emeraldBorder bg-deskGreen px-4 py-2 text-center text-[11px] text-softMintInk/90">
+          <span className="font-semibold text-warmGold">Guest Review Mode</span> • Simulated Coco
+          responses &amp; speech observations • Zero database writes and zero live AI calls.
+        </div>
+      ) : null}
 
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-emeraldBorder bg-emeraldCanvas/95 backdrop-blur-md">
@@ -736,8 +880,9 @@ export function VocoFloHarness() {
             onClick={() => {
               voice.pauseOrStop();
               mic.reset();
+              setShowResumeBanner(false);
               setView("hub");
-              setScopeLabel("Hub & Orientation");
+              setScopeLabel("Welcome & Orientation");
             }}
             className="text-left"
           >
@@ -748,20 +893,11 @@ export function VocoFloHarness() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setAskCocoOpen(true)}
+                onClick={handleOpenAskCoco}
                 className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full border border-emeraldStrongBorder bg-emeraldSurface px-3.5 py-1.5 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised"
               >
                 <MessageCircleQuestion className="h-4 w-4" />
                 Ask Coco
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportModalOpen(true)}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full border border-emeraldStrongBorder bg-emeraldSurface px-3.5 py-1.5 text-xs font-semibold text-creamInk hover:bg-emeraldRaised"
-              >
-                <ClipboardList className="h-4 w-4 text-warmGold" />
-                Evidence &amp; Export ({evidenceEntries.length})
               </button>
 
               <button
@@ -771,7 +907,7 @@ export function VocoFloHarness() {
                 className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-emeraldBorder px-3 py-1.5 text-xs text-mutedSage hover:text-creamInk"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                Controls
+                Audio &amp; Privacy
               </button>
 
               {isGuestMode ? (
@@ -782,7 +918,7 @@ export function VocoFloHarness() {
                     className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-mintAccent/60 px-3 py-1.5 text-xs font-medium text-mintAccent hover:bg-emeraldField"
                   >
                     <LogIn className="h-3.5 w-3.5" />
-                    Sign In (Real AI)
+                    Sign In
                   </button>
                   <button
                     type="button"
@@ -810,7 +946,7 @@ export function VocoFloHarness() {
           ) : null}
         </div>
 
-        {/* Collapsible Voice / Speed / Consent Settings Bar */}
+        {/* Collapsible Voice / Speed / Consent / Reviewer Export Bar */}
         {showSettings && isSessionActive ? (
           <div className="border-t border-emeraldBorder bg-emeraldSurface px-4 py-3">
             <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 text-xs">
@@ -825,11 +961,11 @@ export function VocoFloHarness() {
                   ) : (
                     <VolumeX className="h-3.5 w-3.5 text-mutedSage" />
                   )}
-                  Audio Default: {voice.state.audioDefaultEnabled ? "ON" : "Text First"}
+                  Audio Mode: {voice.state.audioDefaultEnabled ? "Voice First" : "Read First"}
                 </button>
 
                 <div className="flex items-center gap-1">
-                  <span className="text-mutedSage">Coco Speed:</span>
+                  <span className="text-mutedSage">Voice Speed:</span>
                   {[1.1, 1.15, 1.2].map((spd) => (
                     <button
                       key={spd}
@@ -837,7 +973,7 @@ export function VocoFloHarness() {
                       onClick={() => voice.setPlaybackRate(spd)}
                       className={`rounded-full px-2.5 py-0.5 font-mono text-[11px] ${
                         voice.state.playbackRate === spd
-                          ? "bg-mintAccent font-semibold text-sageInk"
+                          ? "border border-mintAccent bg-emeraldField font-semibold text-mintAccent"
                           : "border border-emeraldBorder text-mutedSage"
                       }`}
                     >
@@ -853,21 +989,25 @@ export function VocoFloHarness() {
                     onChange={(e) => voice.setAllowBrowserFallback(e.target.checked)}
                     className="accent-mintAccent"
                   />
-                  Browser speech fallback if TTS unavailable
+                  Allow browser voice fallback
                 </label>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] text-mutedSage">
-                  TTS Cache: {voice.state.preGeneratedHits} bundled / {voice.state.liveTtsCalls}{" "}
-                  live
-                </span>
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setConsentModalOpen(true)}
                   className="text-mintAccent underline"
                 >
-                  Mic Consent ({consentAuthorized ? "Granted" : "Not Granted"})
+                  Microphone Notice ({consentAuthorized ? "Approved" : "Review"})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emeraldStrongBorder bg-emeraldCanvas px-3 py-1 text-xs text-softMintInk hover:bg-emeraldRaised"
+                >
+                  <ClipboardList className="h-3.5 w-3.5 text-warmGold" />
+                  Session Export
                 </button>
               </div>
             </div>
@@ -876,58 +1016,73 @@ export function VocoFloHarness() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-8">
-        {/* Diagnostic Warning if Web App Check / Firebase isn't ready */}
-        {!firebaseStatus.appCheckConfigured && !isGuestMode ? (
-          <div className="mb-6 rounded-2xl border border-warmGold/60 bg-emeraldSurface p-4 text-xs text-warmGold">
-            <div className="flex items-start gap-2.5">
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p className="font-semibold">
-                  Web App Check Not Yet Active (`NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` unset)
-                </p>
-                <p className="mt-1 text-mutedSage">
-                  Sign-in and UI navigation can be inspected, but live AI calls (`/api/ai-gateway`)
-                  require a valid Web App Check reCAPTCHA Enterprise site key (or local dev debug
-                  token). Missing: {firebaseStatus.missingItems.join(", ")}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {authError ? (
           <div className="mb-6 rounded-2xl border border-softCoral/50 bg-coralContainer/70 p-4 text-xs text-coralOnContainer">
             {authError}
           </div>
         ) : null}
 
+        {/* Priority 2: Explicit Resume Action after closing Ask Coco */}
+        {showResumeBanner && interruptedNarration && !askCocoOpen ? (
+          <div
+            data-testid="resume-lesson-audio-banner"
+            className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-mintAccent/70 bg-emeraldField px-4 py-3 text-xs text-softMintInk shadow-sm"
+          >
+            <div>
+              <p className="font-semibold text-creamInk">
+                Lesson narration paused at {interruptedNarration.stageLabel}
+              </p>
+              <p className="text-mutedSage">
+                Your lesson position is preserved. Resume listening whenever you are ready.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResumeInterruptedAudio}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full border border-mintAccent bg-emeraldSurface px-4 py-1.5 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised"
+              >
+                <Play className="h-3.5 w-3.5" />
+                Resume Lesson Audio
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowResumeBanner(false)}
+                aria-label="Dismiss resume notice"
+                className="rounded-full p-1 text-mutedSage hover:text-creamInk"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {!authReady ? (
           <div className="rounded-2xl border border-emeraldBorder bg-emeraldSurface p-8 text-center text-sm text-mutedSage">
-            Checking test session…
+            Loading VocoFlo…
           </div>
         ) : !isSessionActive ? (
           /* WELCOME & SIGN-IN SCREEN */
           <div className="grid gap-6 md:grid-cols-5">
             <div className="space-y-5 rounded-3xl border border-emeraldStrongBorder bg-emeraldSurface p-6 md:col-span-3">
               <div className="inline-flex items-center gap-2 rounded-full bg-emeraldField px-3 py-1 text-xs font-medium text-mintAccent">
-                Independent Browser Evaluation Harness
+                Calm Speaking Coaching
               </div>
               <h1 className="font-display text-3xl font-semibold leading-tight text-creamInk">
-                VocoFlo — Calm Speaking Coaching With Coco
+                VocoFlo — Explore Your Voice With Coco
               </h1>
               <p className="text-sm leading-relaxed text-softMintInk">
-                Test the full Free Speaking Check-In and Module P01 (&ldquo;Your Identity With Your
-                Speech&rdquo;) directly in your browser using Coco&rsquo;s Sulafat voice, Orus
-                partner voice, real microphone recording, and privacy-conscious evidence export.
+                Walk through the Free Speaking Check-In and Module 1 (&ldquo;Your Identity With
+                Your Speech&rdquo;) at an unhurried pace with real conversation, optional voice
+                recording, and zero fluency grading.
               </p>
 
-              <div className="rounded-2xl border border-warmGold/40 bg-emeraldCanvas p-4 text-xs text-softMintInk">
-                <p className="font-semibold text-warmGold">Two Safe Ways to Review</p>
+              <div className="rounded-2xl border border-emeraldBorder bg-emeraldCanvas p-4 text-xs text-softMintInk">
+                <p className="font-semibold text-creamInk">Choose How to Begin</p>
                 <p className="mt-1 text-mutedSage">
-                  Sign in with a dedicated test Google account for live Coco AI &amp; isolated
-                  Firestore storage, or choose <strong>Explore as Guest</strong> to walk through
-                  every screen with clearly labeled simulated responses (no sign-in, no real AI
-                  calls, and no database writes).
+                  Sign in with your Google account for live coaching with Coco, or select{" "}
+                  <strong>Explore as Guest</strong> to preview every step with clearly labeled
+                  simulated responses.
                 </p>
               </div>
 
@@ -938,7 +1093,7 @@ export function VocoFloHarness() {
                   className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-3 text-sm font-semibold text-sageInk transition hover:opacity-90"
                 >
                   <LogIn className="h-4 w-4" />
-                  Sign In With Test Google Account
+                  Sign In With Google
                 </button>
 
                 {guestModeAvailable ? (
@@ -962,30 +1117,17 @@ export function VocoFloHarness() {
                 height={420}
                 className="h-52 w-full rounded-2xl object-cover"
               />
-              <div className="space-y-2 text-xs text-mutedSage">
-                <p className="font-semibold text-creamInk">Environment Diagnostics</p>
-                <p>
-                  Firebase Web App:{" "}
-                  <span className="text-mintAccent">
-                    {firebaseStatus.firebaseConfigured ? "Configured" : "Missing keys"}
-                  </span>
-                </p>
-                <p>
-                  Web App Check Mode:{" "}
-                  <span className="font-mono text-creamInk">{firebaseStatus.appCheckMode}</span>
-                </p>
-                <p>
-                  Guest Review Mode:{" "}
-                  <span className={guestModeAvailable ? "text-warmGold" : "text-mutedSage"}>
-                    {guestModeAvailable ? "Enabled (Simulated)" : "Disabled"}
-                  </span>
-                </p>
+              <div className="space-y-1.5 text-xs text-mutedSage">
+                <p className="font-semibold text-creamInk">What You Can Explore</p>
+                <p>• Four-condition Free Speaking Check-In</p>
+                <p>• Module 1: Your Identity With Your Speech (5 beats)</p>
+                <p>• Optional Acoustic Mirror &amp; Ask Coco Q&amp;A</p>
               </div>
             </div>
           </div>
         ) : loadingProfile ? (
           <div className="rounded-2xl border border-emeraldBorder bg-emeraldSurface p-8 text-center text-sm text-mutedSage">
-            Loading isolated Firestore learner profile…
+            Loading your learner profile…
           </div>
         ) : view === "hub" ? (
           /* SIGNED-IN OR GUEST HUB WITH 3-STEP PAGED INTRO + FLOW SELECTION */
@@ -997,23 +1139,21 @@ export function VocoFloHarness() {
                     <>
                       Session:{" "}
                       <strong className="text-warmGold">
-                        Guest Review Mode (Simulated • Local Browser Only)
+                        Guest Review Mode (Simulated Responses)
                       </strong>
                     </>
                   ) : (
                     <>
-                      Signed in as <strong className="text-creamInk">{authUser?.email}</strong>
+                      Welcome, <strong className="text-creamInk">{profile?.displayName || authUser?.email}</strong>
                     </>
                   )}
                 </p>
                 <p className="mt-1 text-xs text-mintAccent">
-                  {isGuestMode
-                    ? `Simulated Responses • No Firestore Writes • Check-In: ${
-                        profile?.completedCheckIn ? "Completed" : "Not yet completed"
-                      } • Memories: ${memories.length} • Attempts: ${attempts.length}`
-                    : `Tier: ${serverTier} (Monthly live AI: ${monthlyLiveCalls}) • Check-In: ${
-                        profile?.completedCheckIn ? "Completed" : "Not yet completed"
-                      } • Memories: ${memories.length} • Attempts: ${attempts.length}`}
+                  Check-In: {profile?.completedCheckIn ? "Completed" : "Ready when you are"} •
+                  Current session recordings: {currentSessionAttempts.length}
+                  {attempts.length > currentSessionAttempts.length
+                    ? ` • Saved from earlier sessions: ${attempts.length - currentSessionAttempts.length}`
+                    : ""}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1023,27 +1163,25 @@ export function VocoFloHarness() {
                     setView("check_in");
                     setScopeLabel("Free Check-In • Orientation");
                   }}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-sagePill px-5 py-2 text-xs font-semibold text-sageInk hover:opacity-90"
+                  className="inline-flex min-h-[42px] items-center gap-2 rounded-full border border-mintAccent/70 bg-emeraldField px-4 py-2 text-xs font-semibold text-mintAccent hover:bg-emeraldRaised"
                 >
-                  Start Free Check-In
-                  <ArrowRight className="h-4 w-4" />
+                  Open Free Check-In
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setView("p01");
                     setActiveP01Beat("p01_beat_1_mirror");
-                    setScopeLabel("P01 • Beat 1: The Mirror");
+                    setScopeLabel("Module 1 • Beat 1: The Mirror");
                   }}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-emeraldStrongBorder px-5 py-2 text-xs font-semibold text-creamInk hover:bg-emeraldRaised"
+                  className="inline-flex min-h-[42px] items-center gap-2 rounded-full border border-emeraldStrongBorder px-4 py-2 text-xs font-semibold text-creamInk hover:bg-emeraldRaised"
                 >
-                  Open Module P01
-                  <ArrowRight className="h-4 w-4" />
+                  Open Module 1 (P01)
                 </button>
               </div>
             </div>
 
-            {/* Paged 3-Step Rhythm (1 step per page with Next Step button) */}
+            {/* Paged 3-Step Rhythm (1 step per page with single primary Next Step button) */}
             <div className="rounded-3xl border border-emeraldStrongBorder bg-emeraldSurface p-6">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-mintAccent">
@@ -1121,7 +1259,7 @@ export function VocoFloHarness() {
             events={events}
             localClips={localClips}
             voiceState={voice.state}
-            onPlayAudio={(txt, role) => voice.speak(txt, role)}
+            onPlayAudio={handlePlayLessonAudio}
             onPauseAudio={() => voice.pauseOrStop()}
             micState={mic.state}
             audioConsentAuthorized={consentAuthorized}
@@ -1249,9 +1387,10 @@ export function VocoFloHarness() {
             onGoToP01={() => {
               voice.pauseOrStop();
               mic.reset();
+              setShowResumeBanner(false);
               setView("p01");
               setActiveP01Beat("p01_beat_1_mirror");
-              setScopeLabel("P01 • Beat 1: The Mirror");
+              setScopeLabel("Module 1 • Beat 1: The Mirror");
             }}
           />
         ) : (
@@ -1264,9 +1403,11 @@ export function VocoFloHarness() {
             attempts={attempts}
             events={events}
             localClips={localClips}
+            recentConversationTurns={conversationTurns}
+            onAppendConversationTurn={appendConversationTurn}
             speechTermMode={speechTermMode}
             voiceState={voice.state}
-            onPlayAudio={(txt, role) => voice.speak(txt, role)}
+            onPlayAudio={handlePlayLessonAudio}
             onPauseAudio={() => voice.pauseOrStop()}
             micState={mic.state}
             audioConsentAuthorized={consentAuthorized}
@@ -1297,7 +1438,8 @@ export function VocoFloHarness() {
                 currentStepIndex: beatIdx,
                 completedSteps: comp,
                 skippedSteps: skip,
-                understandingChoiceId: understandingChoiceId ?? p01Progress?.understandingChoiceId,
+                understandingChoiceId:
+                  understandingChoiceId ?? p01Progress?.understandingChoiceId,
                 reviewObservationChoice: reviewChoice ?? p01Progress?.reviewObservationChoice,
                 sessionCompleted: completed,
               };
@@ -1355,11 +1497,13 @@ export function VocoFloHarness() {
               }
             }}
             onLogEvidence={appendEvidence}
-            onSyncScope={(beatId, comp, unr) => {
-              setActiveP01Beat(beatId);
-              setScopeLabel(`P01 • ${beatId}`);
-              setCompletedStepTitles(comp);
-              setUnreachedStepTitles(unr);
+            onSyncScope={handleSyncP01Scope}
+            onReturnToHub={() => {
+              voice.pauseOrStop();
+              mic.reset();
+              setShowResumeBanner(false);
+              setView("hub");
+              setScopeLabel("Welcome & Orientation");
             }}
           />
         )}
@@ -1408,7 +1552,9 @@ export function VocoFloHarness() {
 
       <AskCocoDrawer
         open={askCocoOpen}
-        onClose={() => setAskCocoOpen(false)}
+        onClose={handleCloseAskCoco}
+        onCloseAndResumeLesson={handleResumeInterruptedAudio}
+        hasInterruptedLessonAudio={Boolean(interruptedNarration)}
         scope={journeyScope}
         micRecordingActive={mic.state.status === "recording"}
         exchanges={qaExchanges}
