@@ -3,18 +3,20 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
+  type Timestamp,
 } from "firebase/firestore";
 import type {
   CoachMemoryItem,
   LearnerProfile,
+  LessonProgress,
   SpeechAttempt,
   SpeechEvent,
   SpeechEventReviewState,
@@ -22,6 +24,36 @@ import type {
   TransferPlan,
 } from "@/types/vocoflo";
 import { getNamedFirestore } from "./client";
+import {
+  buildCoachMemoryCreatePayload,
+  buildCoachMemoryUpdatePayload,
+  buildLearnerProfileCreatePayload,
+  buildLearnerProfileUpdatePayload,
+  buildLessonProgressCreatePayload,
+  buildLessonProgressUpdatePayload,
+  buildSpeechAttemptCreatePayload,
+  buildSpeechAttemptUpdatePayload,
+  buildSpeechEventCreatePayload,
+  buildSpeechEventUpdatePayload,
+  buildTransferPlanCreatePayload,
+  buildTransferPlanUpdatePayload,
+  FIRESTORE_COLLECTIONS,
+  sanitizeFirestoreId,
+  type SpeechAttemptUpdateInput,
+} from "./firestore-schema";
+
+function timestampToIso(ts: unknown): string {
+  if (ts && typeof ts === "object" && "toDate" in ts && typeof (ts as Timestamp).toDate === "function") {
+    return (ts as Timestamp).toDate().toISOString();
+  }
+  return new Date(0).toISOString();
+}
+
+export function currentUtcPeriodKey(date = new Date()): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
 
 export async function loadOrCreateLearnerProfile(
   uid: string,
@@ -32,7 +64,7 @@ export async function loadOrCreateLearnerProfile(
     throw new Error("Firestore is not configured.");
   }
 
-  const ref = doc(db, "users", uid);
+  const ref = doc(db, FIRESTORE_COLLECTIONS.users, uid);
   const snap = await getDoc(ref);
   if (snap.exists()) {
     const d = snap.data();
@@ -50,15 +82,26 @@ export async function loadOrCreateLearnerProfile(
       membershipTier:
         d.membershipTier === "cohort_preview" ? "cohort_preview" : "free_preview",
       membershipStatus:
-        d.membershipStatus === "active_cohort" ? "active_cohort" : "active_preview",
+        d.membershipStatus === "active_cohort"
+          ? "active_cohort"
+          : d.membershipStatus === "preview_pending"
+            ? "preview_pending"
+            : "active_preview",
       onboardingSeen: Boolean(d.onboardingSeen),
     };
   }
 
-  const safeName = (fallbackDisplayName || "Learner").trim().slice(0, 100) || "Learner";
-  const newProfile: LearnerProfile = {
+  const payload = buildLearnerProfileCreatePayload({
+    uid,
+    displayName: fallbackDisplayName,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  await setDoc(ref, payload);
+
+  return {
     userId: uid,
-    displayName: safeName,
+    displayName: String(payload.displayName),
     chosenGoals: [],
     importantSituations: [],
     completedCheckIn: false,
@@ -69,13 +112,6 @@ export async function loadOrCreateLearnerProfile(
     membershipStatus: "active_preview",
     onboardingSeen: false,
   };
-
-  await setDoc(ref, {
-    ...newProfile,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  return newProfile;
 }
 
 export async function updateLearnerProfileFields(
@@ -83,154 +119,235 @@ export async function updateLearnerProfileFields(
   fields: Partial<
     Pick<
       LearnerProfile,
-      "displayName" | "chosenGoals" | "importantSituations" | "completedCheckIn" | "onboardingSeen"
+      | "displayName"
+      | "chosenGoals"
+      | "importantSituations"
+      | "completedCheckIn"
+      | "selectedToolId"
+      | "developmentFixtureEnabled"
+      | "preferredLanguage"
+      | "onboardingSeen"
     >
   >
 ): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  const ref = doc(db, "users", uid);
-  await updateDoc(ref, {
-    ...fields,
-    updatedAt: serverTimestamp(),
-  });
+  const ref = doc(db, FIRESTORE_COLLECTIONS.users, uid);
+  const payload = buildLearnerProfileUpdatePayload(fields, serverTimestamp());
+  await updateDoc(ref, payload);
 }
 
 export async function loadLearnerContext(uid: string): Promise<{
   memories: CoachMemoryItem[];
   attempts: SpeechAttempt[];
   events: SpeechEvent[];
+  p01Progress: LessonProgress | null;
   p01Completed: boolean;
+  serverEntitlementTier: "free_preview" | "cohort_preview";
+  monthlyLiveAiCalls: number;
 }> {
   const db = getNamedFirestore();
   if (!db) {
-    return { memories: [], attempts: [], events: [], p01Completed: false };
+    return {
+      memories: [],
+      attempts: [],
+      events: [],
+      p01Progress: null,
+      p01Completed: false,
+      serverEntitlementTier: "free_preview",
+      monthlyLiveAiCalls: 0,
+    };
   }
 
-  const [memSnap, attSnap, evtSnap, p01Snap] = await Promise.all([
-    getDocs(collection(db, "users", uid, "memories")),
-    getDocs(query(collection(db, "users", uid, "attempts"), orderBy("createdAt", "desc"))),
-    getDocs(collection(db, "users", uid, "speech_events")),
-    getDoc(doc(db, "users", uid, "lesson_progress", "P01")),
+  const periodKey = currentUtcPeriodKey();
+  const [memSnap, attSnap, evtSnap, p01Snap, entSnap, counterSnap] = await Promise.all([
+    getDocs(collection(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.memories)),
+    getDocs(collection(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.attempts)),
+    getDocs(collection(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.speechEvents)),
+    getDoc(doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.lessonProgress, "P01")),
+    getDoc(
+      doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.entitlements, "current")
+    ).catch(() => null),
+    getDoc(
+      doc(
+        db,
+        FIRESTORE_COLLECTIONS.users,
+        uid,
+        FIRESTORE_COLLECTIONS.allowanceCounters,
+        periodKey
+      )
+    ).catch(() => null),
   ]);
 
-  const memories: CoachMemoryItem[] = memSnap.docs.map((d) => {
-    const x = d.data();
-    return {
-      id: d.id,
-      userId: String(x.userId || uid),
-      category: x.category || "observation",
-      fact: String(x.fact || ""),
-      sourceKind: x.sourceKind || "user_report",
-      sourceReference: String(x.sourceReference || "web_test"),
+  const memories: CoachMemoryItem[] = memSnap.docs
+    .map((d) => {
+      const x = d.data();
+      return {
+        id: d.id,
+        userId: String(x.userId || uid),
+        category: x.category || "observation",
+        fact: String(x.fact || ""),
+        sourceKind: x.sourceKind || "user_report",
+        sourceReference: String(x.sourceReference || "web_test"),
+        _sortTime: timestampToIso(x.updatedAt || x.createdAt),
+      };
+    })
+    .sort((a, b) => b._sortTime.localeCompare(a._sortTime))
+    .map(({ _sortTime, ...rest }) => {
+      void _sortTime;
+      return rest;
+    });
+
+  const attempts: SpeechAttempt[] = attSnap.docs
+    .map((d) => {
+      const x = d.data();
+      return {
+        id: d.id,
+        userId: String(x.userId || uid),
+        sourceContext: x.sourceContext || "check_in_spontaneous",
+        activityOrSectionId: String(x.activityOrSectionId || ""),
+        promptText: String(x.promptText || ""),
+        durationSeconds: Number(x.durationSeconds || 0),
+        hasLocalAudio: Boolean(x.hasLocalAudio),
+        analysisStatus: x.analysisStatus || "not_requested",
+        analysisProvider: x.analysisProvider,
+        analysisModel: x.analysisModel,
+        adapterVersion: x.adapterVersion,
+        disfluentTranscript: x.disfluentTranscript ?? null,
+        summaryObservation: x.summaryObservation ?? null,
+        analysisError: x.analysisError ?? null,
+        selfReportEffort: typeof x.selfReportEffort === "number" ? x.selfReportEffort : null,
+        selfReportAvoidanceNote: x.selfReportAvoidanceNote ?? null,
+        createdAtIso: timestampToIso(x.createdAt),
+      };
+    })
+    .sort((a, b) => b.createdAtIso.localeCompare(a.createdAtIso));
+
+  const events: SpeechEvent[] = evtSnap.docs
+    .map((d) => {
+      const x = d.data();
+      return {
+        id: d.id,
+        userId: String(x.userId || uid),
+        attemptId: String(x.attemptId || ""),
+        startSeconds: Number(x.startSeconds || 0),
+        endSeconds: Number(x.endSeconds || 0.1),
+        eventType: x.eventType || "other_uncertain",
+        wordOrSound: x.wordOrSound ?? null,
+        tentativeObservation: String(x.tentativeObservation || ""),
+        sourceKind: x.sourceKind || "ai_observed",
+        reviewState: x.reviewState || "unreviewed",
+        correctedLabel: x.correctedLabel ?? null,
+        correctionNote: x.correctionNote ?? null,
+      };
+    })
+    .sort((a, b) => a.startSeconds - b.startSeconds);
+
+  let p01Progress: LessonProgress | null = null;
+  if (p01Snap.exists()) {
+    const p = p01Snap.data();
+    p01Progress = {
+      userId: String(p.userId || uid),
+      toolId: String(p.toolId || "P01"),
+      currentStepIndex: Number(p.currentStepIndex || 0),
+      completedSteps: Array.isArray(p.completedSteps) ? p.completedSteps.map(String) : [],
+      skippedSteps: Array.isArray(p.skippedSteps) ? p.skippedSteps.map(String) : [],
+      understandingChoiceId: p.understandingChoiceId ? String(p.understandingChoiceId) : null,
+      reviewObservationChoice: p.reviewObservationChoice
+        ? String(p.reviewObservationChoice)
+        : null,
+      sessionCompleted: Boolean(p.sessionCompleted),
     };
-  });
+  }
 
-  const attempts: SpeechAttempt[] = attSnap.docs.map((d) => {
-    const x = d.data();
-    return {
-      id: d.id,
-      userId: String(x.userId || uid),
-      sourceContext: x.sourceContext || "check_in_spontaneous",
-      activityOrSectionId: String(x.activityOrSectionId || ""),
-      promptText: String(x.promptText || ""),
-      durationSeconds: Number(x.durationSeconds || 0),
-      hasLocalAudio: Boolean(x.hasLocalAudio),
-      analysisStatus: x.analysisStatus || "not_requested",
-      analysisProvider: x.analysisProvider,
-      analysisModel: x.analysisModel,
-      adapterVersion: x.adapterVersion,
-      disfluentTranscript: x.disfluentTranscript ?? null,
-      summaryObservation: x.summaryObservation ?? null,
-      analysisError: x.analysisError ?? null,
-      selfReportEffort: typeof x.selfReportEffort === "number" ? x.selfReportEffort : null,
-      selfReportAvoidanceNote: x.selfReportAvoidanceNote ?? null,
-      createdAtIso: new Date().toISOString(),
-    };
-  });
+  const serverEntitlementTier =
+    entSnap &&
+    entSnap.exists() &&
+    entSnap.data()?.membershipTier === "cohort_preview" &&
+    entSnap.data()?.membershipStatus === "active_cohort"
+      ? "cohort_preview"
+      : "free_preview";
 
-  const events: SpeechEvent[] = evtSnap.docs.map((d) => {
-    const x = d.data();
-    return {
-      id: d.id,
-      userId: String(x.userId || uid),
-      attemptId: String(x.attemptId || ""),
-      startSeconds: Number(x.startSeconds || 0),
-      endSeconds: Number(x.endSeconds || 0.1),
-      eventType: x.eventType || "other_uncertain",
-      wordOrSound: x.wordOrSound ?? null,
-      tentativeObservation: String(x.tentativeObservation || ""),
-      sourceKind: x.sourceKind || "ai_observed",
-      reviewState: x.reviewState || "unreviewed",
-      correctedLabel: x.correctedLabel ?? null,
-      correctionNote: x.correctionNote ?? null,
-    };
-  });
+  const monthlyLiveAiCalls =
+    counterSnap && counterSnap.exists()
+      ? Number(counterSnap.data()?.liveAiCalls || 0)
+      : 0;
 
-  const p01Completed = Boolean(p01Snap.exists() && p01Snap.data()?.sessionCompleted);
-
-  return { memories, attempts, events, p01Completed };
+  return {
+    memories,
+    attempts,
+    events,
+    p01Progress,
+    p01Completed: Boolean(p01Progress?.sessionCompleted),
+    serverEntitlementTier,
+    monthlyLiveAiCalls,
+  };
 }
 
 export async function persistSpeechAttempt(attempt: SpeechAttempt): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  const ref = doc(db, "users", attempt.userId, "attempts", attempt.id);
-  await setDoc(ref, {
-    userId: attempt.userId,
-    sourceContext: attempt.sourceContext,
-    activityOrSectionId: attempt.activityOrSectionId.slice(0, 64),
-    promptText: attempt.promptText.slice(0, 1000),
-    durationSeconds: Math.min(Math.max(attempt.durationSeconds, 0), 600),
-    hasLocalAudio: attempt.hasLocalAudio,
-    analysisStatus: attempt.analysisStatus,
-    ...(attempt.analysisProvider ? { analysisProvider: attempt.analysisProvider.slice(0, 64) } : {}),
-    ...(attempt.analysisModel ? { analysisModel: attempt.analysisModel.slice(0, 64) } : {}),
-    ...(attempt.adapterVersion ? { adapterVersion: attempt.adapterVersion.slice(0, 32) } : {}),
-    ...(attempt.disfluentTranscript
-      ? { disfluentTranscript: attempt.disfluentTranscript.slice(0, 4000) }
-      : {}),
-    ...(attempt.summaryObservation
-      ? { summaryObservation: attempt.summaryObservation.slice(0, 1000) }
-      : {}),
-    ...(attempt.analysisError ? { analysisError: attempt.analysisError.slice(0, 500) } : {}),
-    ...(typeof attempt.selfReportEffort === "number"
-      ? { selfReportEffort: Math.min(5, Math.max(1, Math.round(attempt.selfReportEffort))) }
-      : {}),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(attempt.id, "att");
+  const ref = doc(db, FIRESTORE_COLLECTIONS.users, attempt.userId, FIRESTORE_COLLECTIONS.attempts, safeId);
+  const payload = buildSpeechAttemptCreatePayload(attempt, serverTimestamp(), serverTimestamp());
+  await setDoc(ref, payload);
 }
 
 export async function updateSpeechAttemptFields(
   uid: string,
   attemptId: string,
-  fields: Record<string, unknown>
+  fields: SpeechAttemptUpdateInput
 ): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await updateDoc(doc(db, "users", uid, "attempts", attemptId), {
-    ...fields,
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(attemptId, "att");
+  const payload = buildSpeechAttemptUpdatePayload(fields, serverTimestamp(), deleteField());
+  await updateDoc(
+    doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.attempts, safeId),
+    payload
+  );
 }
 
 export async function persistSpeechEvent(evt: SpeechEvent): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await setDoc(doc(db, "users", evt.userId, "speech_events", evt.id), {
-    userId: evt.userId,
-    attemptId: evt.attemptId.slice(0, 128),
-    startSeconds: evt.startSeconds,
-    endSeconds: evt.endSeconds,
-    eventType: evt.eventType,
-    ...(evt.wordOrSound ? { wordOrSound: evt.wordOrSound.slice(0, 128) } : {}),
-    tentativeObservation: evt.tentativeObservation.slice(0, 500),
-    sourceKind: evt.sourceKind,
-    reviewState: evt.reviewState,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(evt.id, "evt");
+  const payload = buildSpeechEventCreatePayload(evt, serverTimestamp(), serverTimestamp());
+  await setDoc(
+    doc(db, FIRESTORE_COLLECTIONS.users, evt.userId, FIRESTORE_COLLECTIONS.speechEvents, safeId),
+    payload
+  );
+}
+
+export async function replaceSpeechEventsForAttempt(
+  uid: string,
+  eventIdsToDelete: string[],
+  eventsToInsert: SpeechEvent[]
+): Promise<void> {
+  const db = getNamedFirestore();
+  if (!db) return;
+  if (eventIdsToDelete.length === 0 && eventsToInsert.length === 0) return;
+
+  const batch = writeBatch(db);
+  for (const staleId of eventIdsToDelete) {
+    const safeId = sanitizeFirestoreId(staleId, "evt");
+    batch.delete(
+      doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.speechEvents, safeId)
+    );
+  }
+  for (const evt of eventsToInsert) {
+    const safeId = sanitizeFirestoreId(evt.id, "evt");
+    const payload = buildSpeechEventCreatePayload(
+      { ...evt, userId: uid },
+      serverTimestamp(),
+      serverTimestamp()
+    );
+    batch.set(
+      doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.speechEvents, safeId),
+      payload
+    );
+  }
+  await batch.commit();
 }
 
 export async function updateSpeechEventReviewInFirestore(
@@ -243,33 +360,43 @@ export async function updateSpeechEventReviewInFirestore(
 ): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await updateDoc(doc(db, "users", uid, "speech_events", eventId), {
-    reviewState,
-    ...(eventType ? { eventType } : {}),
-    ...(correctedLabel ? { correctedLabel: correctedLabel.slice(0, 128) } : {}),
-    ...(correctionNote ? { correctionNote: correctionNote.slice(0, 500) } : {}),
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(eventId, "evt");
+  const payload = buildSpeechEventUpdatePayload(
+    { reviewState, eventType, correctedLabel, correctionNote },
+    serverTimestamp()
+  );
+  await updateDoc(
+    doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.speechEvents, safeId),
+    payload
+  );
 }
 
 export async function persistCoachMemory(item: CoachMemoryItem): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await setDoc(doc(db, "users", item.userId, "memories", item.id), {
-    userId: item.userId,
-    category: item.category,
-    fact: item.fact.slice(0, 500),
-    sourceKind: item.sourceKind,
-    sourceReference: item.sourceReference.slice(0, 128),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(item.id, "mem");
+  const ref = doc(db, FIRESTORE_COLLECTIONS.users, item.userId, FIRESTORE_COLLECTIONS.memories, safeId);
+  const existing = await getDoc(ref);
+  if (existing.exists()) {
+    const updatePayload = buildCoachMemoryUpdatePayload(item, serverTimestamp());
+    if (!updatePayload) return;
+    await updateDoc(ref, updatePayload);
+  } else {
+    const createPayload = buildCoachMemoryCreatePayload(
+      item,
+      serverTimestamp(),
+      serverTimestamp()
+    );
+    if (!createPayload) return;
+    await setDoc(ref, createPayload);
+  }
 }
 
 export async function deleteCoachMemory(uid: string, memoryId: string): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await deleteDoc(doc(db, "users", uid, "memories", memoryId));
+  const safeId = sanitizeFirestoreId(memoryId, "mem");
+  await deleteDoc(doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.memories, safeId));
 }
 
 export async function persistP01Progress(
@@ -278,53 +405,68 @@ export async function persistP01Progress(
   completedSteps: string[],
   skippedSteps: string[],
   sessionCompleted: boolean,
-  reviewObservationChoice?: string | null
+  reviewObservationChoice?: string | null,
+  understandingChoiceId?: string | null
 ): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  const ref = doc(db, "users", uid, "lesson_progress", "P01");
+  const ref = doc(db, FIRESTORE_COLLECTIONS.users, uid, FIRESTORE_COLLECTIONS.lessonProgress, "P01");
   const snap = await getDoc(ref);
   if (snap.exists()) {
-    await updateDoc(ref, {
-      currentStepIndex: beatIndex,
-      completedSteps: completedSteps.slice(0, 30),
-      skippedSteps: skippedSteps.slice(0, 30),
-      sessionCompleted,
-      ...(reviewObservationChoice
-        ? { reviewObservationChoice: reviewObservationChoice.slice(0, 64) }
-        : {}),
-      updatedAt: serverTimestamp(),
-    });
+    const payload = buildLessonProgressUpdatePayload(
+      {
+        currentStepIndex: beatIndex,
+        completedSteps,
+        skippedSteps,
+        sessionCompleted,
+        reviewObservationChoice,
+        understandingChoiceId,
+      },
+      serverTimestamp()
+    );
+    await updateDoc(ref, payload);
   } else {
-    await setDoc(ref, {
-      userId: uid,
-      toolId: "P01",
-      currentStepIndex: beatIndex,
-      completedSteps: completedSteps.slice(0, 30),
-      skippedSteps: skippedSteps.slice(0, 30),
-      sessionCompleted,
-      ...(reviewObservationChoice
-        ? { reviewObservationChoice: reviewObservationChoice.slice(0, 64) }
-        : {}),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    const payload = buildLessonProgressCreatePayload(
+      {
+        userId: uid,
+        toolId: "P01",
+        currentStepIndex: beatIndex,
+        completedSteps,
+        skippedSteps,
+        sessionCompleted,
+        reviewObservationChoice,
+        understandingChoiceId,
+      },
+      serverTimestamp(),
+      serverTimestamp()
+    );
+    await setDoc(ref, payload);
   }
 }
 
 export async function persistTransferPlan(plan: TransferPlan): Promise<void> {
   const db = getNamedFirestore();
   if (!db) return;
-  await setDoc(doc(db, "users", plan.userId, "transfer_plans", plan.id), {
-    userId: plan.userId,
-    toolId: plan.toolId,
-    situation: plan.situation.slice(0, 300),
-    smallAction: plan.smallAction.slice(0, 300),
-    ...(plan.observationToNotice
-      ? { observationToNotice: plan.observationToNotice.slice(0, 300) }
-      : {}),
-    planStatus: plan.planStatus,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const safeId = sanitizeFirestoreId(plan.id, "plan");
+  const ref = doc(
+    db,
+    FIRESTORE_COLLECTIONS.users,
+    plan.userId,
+    FIRESTORE_COLLECTIONS.transferPlans,
+    safeId
+  );
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const updatePayload = buildTransferPlanUpdatePayload(plan, serverTimestamp());
+    if (!updatePayload) return;
+    await updateDoc(ref, updatePayload);
+  } else {
+    const createPayload = buildTransferPlanCreatePayload(
+      plan,
+      serverTimestamp(),
+      serverTimestamp()
+    );
+    if (!createPayload) return;
+    await setDoc(ref, createPayload);
+  }
 }

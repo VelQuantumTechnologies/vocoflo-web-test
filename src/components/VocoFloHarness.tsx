@@ -36,6 +36,7 @@ import {
   getWebFirebaseStatus,
 } from "@/lib/firebase/client";
 import {
+  deleteCoachMemory,
   loadLearnerContext,
   loadOrCreateLearnerProfile,
   persistCoachMemory,
@@ -43,6 +44,7 @@ import {
   persistSpeechAttempt,
   persistSpeechEvent,
   persistTransferPlan,
+  replaceSpeechEventsForAttempt,
   updateLearnerProfileFields,
   updateSpeechAttemptFields,
   updateSpeechEventReviewInFirestore,
@@ -56,6 +58,7 @@ import type {
   EvidenceLogEntry,
   JourneyScope,
   LearnerProfile,
+  LessonProgress,
   LocalAudioClip,
   P01BeatId,
   SpeechAttempt,
@@ -99,6 +102,9 @@ export function VocoFloHarness() {
   const [memories, setMemories] = useState<CoachMemoryItem[]>([]);
   const [attempts, setAttempts] = useState<SpeechAttempt[]>([]);
   const [events, setEvents] = useState<SpeechEvent[]>([]);
+  const [p01Progress, setP01Progress] = useState<LessonProgress | null>(null);
+  const [serverTier, setServerTier] = useState<"free_preview" | "cohort_preview">("free_preview");
+  const [monthlyLiveCalls, setMonthlyLiveCalls] = useState(0);
   const [localClips, setLocalClips] = useState<Record<string, LocalAudioClip>>({});
   const [evidenceEntries, setEvidenceEntries] = useState<EvidenceLogEntry[]>([]);
 
@@ -199,6 +205,9 @@ export function VocoFloHarness() {
         setMemories([]);
         setAttempts([]);
         setEvents([]);
+        setP01Progress(null);
+        setServerTier("free_preview");
+        setMonthlyLiveCalls(0);
         setConsentAuthorized(false);
         return;
       }
@@ -217,11 +226,14 @@ export function VocoFloHarness() {
         setMemories(ctx.memories);
         setAttempts(ctx.attempts);
         setEvents(ctx.events);
+        setP01Progress(ctx.p01Progress);
+        setServerTier(ctx.serverEntitlementTier);
+        setMonthlyLiveCalls(ctx.monthlyLiveAiCalls);
 
         appendEvidence({
           kind: "ui_event",
           stage: "Auth & Firestore",
-          summary: `Loaded isolated profile (completedCheckIn=${prof.completedCheckIn}, memories=${ctx.memories.length}, attempts=${ctx.attempts.length})`,
+          summary: `Loaded isolated profile (tier=${ctx.serverEntitlementTier}, monthlyLive=${ctx.monthlyLiveAiCalls}, completedCheckIn=${prof.completedCheckIn}, memories=${ctx.memories.length}, attempts=${ctx.attempts.length})`,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Could not load Firestore profile.";
@@ -351,7 +363,14 @@ export function VocoFloHarness() {
         await updateSpeechAttemptFields(attempt.userId, attempt.id, {
           analysisStatus: "failed",
           analysisError: errMsg,
-        }).catch(() => {});
+        }).catch((err) => {
+          appendEvidence({
+            kind: "error",
+            stage: "Firestore Attempt Update",
+            summary: "Could not save failed speech analysis status",
+            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          });
+        });
         return {
           ok: false,
           transcript: null,
@@ -405,13 +424,30 @@ export function VocoFloHarness() {
         await updateSpeechAttemptFields(attempt.userId, attempt.id, {
           analysisStatus: "success",
           analysisModel: res.model,
-          ...(parsed.disfluentTranscript
-            ? { disfluentTranscript: parsed.disfluentTranscript }
-            : {}),
+          disfluentTranscript: parsed.disfluentTranscript || null,
           summaryObservation: parsed.summaryObservation,
-        }).catch(() => {});
+          analysisError: null,
+        }).catch((err) => {
+          appendEvidence({
+            kind: "error",
+            stage: "Firestore Attempt Update",
+            summary: "Could not update speech attempt analysis in Firestore",
+            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          });
+        });
 
-        await Promise.all(eventsToInsert.map((e) => persistSpeechEvent(e).catch(() => {})));
+        await replaceSpeechEventsForAttempt(
+          attempt.userId,
+          eventIdsToDelete,
+          eventsToInsert
+        ).catch((err) => {
+          appendEvidence({
+            kind: "error",
+            stage: "Firestore Speech Events",
+            summary: "Could not persist speech events in Firestore",
+            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          });
+        });
 
         return {
           ok: true,
@@ -468,7 +504,14 @@ export function VocoFloHarness() {
           eventType,
           correctedLabel,
           correctionNote
-        ).catch(() => {});
+        ).catch((err) => {
+          appendEvidence({
+            kind: "error",
+            stage: "Firestore Speech Event Review",
+            summary: "Could not save speech event correction",
+            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          });
+        });
       }
       appendEvidence({
         kind: "ui_event",
@@ -495,7 +538,14 @@ export function VocoFloHarness() {
         reviewState: "confirmed",
       };
       setEvents((prev) => [...prev, newEvt]);
-      persistSpeechEvent(newEvt).catch(() => {});
+      persistSpeechEvent(newEvt).catch((err) => {
+        appendEvidence({
+          kind: "error",
+          stage: "Firestore Speech Event",
+          summary: "Could not persist user-reported speech moment",
+          errorMessage: err instanceof Error ? err.message : "Unknown error",
+        });
+      });
       appendEvidence({
         kind: "ui_event",
         stage: "Acoustic Mirror",
@@ -808,8 +858,9 @@ export function VocoFloHarness() {
                   Signed in as <strong className="text-creamInk">{authUser.email}</strong>
                 </p>
                 <p className="mt-1 text-xs text-mintAccent">
-                  Check-In: {profile?.completedCheckIn ? "Completed" : "Not yet completed"} •
-                  Memories: {memories.length} • Attempts: {attempts.length}
+                  Tier: {serverTier} (Monthly live AI: {monthlyLiveCalls}) • Check-In:{" "}
+                  {profile?.completedCheckIn ? "Completed" : "Not yet completed"} • Memories:{" "}
+                  {memories.length} • Attempts: {attempts.length}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -937,31 +988,56 @@ export function VocoFloHarness() {
                 p ? { ...p, chosenGoals: goals, importantSituations: situations } : p
               );
               const newMemories: CoachMemoryItem[] = [];
+              const ops: Array<Promise<void>> = [];
+
               if (situations.length > 0) {
-                newMemories.push({
+                const m: CoachMemoryItem = {
                   id: "mem_checkin_situations",
                   userId: authUser.uid,
                   category: "context",
                   fact: `Important speaking situations: ${situations.join(", ")}`,
                   sourceKind: "user_report",
                   sourceReference: "web_check_in_context",
-                });
+                };
+                newMemories.push(m);
+                ops.push(persistCoachMemory(m));
+              } else {
+                ops.push(deleteCoachMemory(authUser.uid, "mem_checkin_situations"));
               }
+
               if (goals.length > 0) {
-                newMemories.push({
+                const m: CoachMemoryItem = {
                   id: "mem_checkin_goals",
                   userId: authUser.uid,
                   category: "goal",
                   fact: `Goal: ${goals.join(", ")}`,
                   sourceKind: "user_report",
                   sourceReference: "web_check_in_context",
-                });
+                };
+                newMemories.push(m);
+                ops.push(persistCoachMemory(m));
+              } else {
+                ops.push(deleteCoachMemory(authUser.uid, "mem_checkin_goals"));
               }
-              await Promise.all(newMemories.map((m) => persistCoachMemory(m).catch(() => {})));
+
+              await Promise.all(
+                ops.map((p) =>
+                  p.catch((err) => {
+                    appendEvidence({
+                      kind: "error",
+                      stage: "Firestore Memories",
+                      summary: "Could not sync Check-In context memory",
+                      errorMessage: err instanceof Error ? err.message : "Unknown error",
+                    });
+                  })
+                )
+              );
+
               setMemories((prev) => {
-                const map = new Map(prev.map((m) => [m.id, m]));
-                newMemories.forEach((m) => map.set(m.id, m));
-                return Array.from(map.values());
+                const filtered = prev.filter(
+                  (m) => m.id !== "mem_checkin_situations" && m.id !== "mem_checkin_goals"
+                );
+                return [...newMemories, ...filtered];
               });
             }}
             onSaveAttemptClip={handleSaveAttemptClip}
@@ -971,7 +1047,14 @@ export function VocoFloHarness() {
               );
               await updateSpeechAttemptFields(authUser.uid, attId, {
                 selfReportEffort: effort,
-              }).catch(() => {});
+              }).catch((err) => {
+                appendEvidence({
+                  kind: "error",
+                  stage: "Firestore Attempt Effort",
+                  summary: "Could not update self-reported effort",
+                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+                });
+              });
             }}
             onRunSpeechAnalysis={handleRunSpeechAnalysis}
             onUpdateEventReview={handleUpdateEventReview}
@@ -1006,6 +1089,7 @@ export function VocoFloHarness() {
           <P01View
             uid={authUser.uid}
             profile={profile}
+            initialProgress={p01Progress}
             memories={memories}
             attempts={attempts}
             events={events}
@@ -1028,18 +1112,51 @@ export function VocoFloHarness() {
             onRunSpeechAnalysis={handleRunSpeechAnalysis}
             onUpdateEventReview={handleUpdateEventReview}
             onAddUserMoment={handleAddUserMoment}
-            onSaveP01Progress={async (beatIdx, comp, skip, completed, reviewChoice) => {
+            onSaveP01Progress={async (
+              beatIdx,
+              comp,
+              skip,
+              completed,
+              reviewChoice,
+              understandingChoiceId
+            ) => {
+              const nextProg: LessonProgress = {
+                userId: authUser.uid,
+                toolId: "P01",
+                currentStepIndex: beatIdx,
+                completedSteps: comp,
+                skippedSteps: skip,
+                understandingChoiceId: understandingChoiceId ?? p01Progress?.understandingChoiceId,
+                reviewObservationChoice: reviewChoice ?? p01Progress?.reviewObservationChoice,
+                sessionCompleted: completed,
+              };
+              setP01Progress(nextProg);
               await persistP01Progress(
                 authUser.uid,
                 beatIdx,
                 comp,
                 skip,
                 completed,
-                reviewChoice
-              ).catch(() => {});
+                reviewChoice,
+                understandingChoiceId
+              ).catch((err) => {
+                appendEvidence({
+                  kind: "error",
+                  stage: "Firestore P01 Progress",
+                  summary: "Could not save P01 progress",
+                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+                });
+              });
             }}
             onSaveTransferPlanAndMemory={async (plan, saveMem) => {
-              await persistTransferPlan(plan).catch(() => {});
+              await persistTransferPlan(plan).catch((err) => {
+                appendEvidence({
+                  kind: "error",
+                  stage: "Firestore Transfer Plan",
+                  summary: "Could not save transfer plan",
+                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+                });
+              });
               if (saveMem) {
                 const mem: CoachMemoryItem = {
                   id: `mem_p01_transfer_${crypto.randomUUID().slice(0, 6)}`,
@@ -1049,8 +1166,15 @@ export function VocoFloHarness() {
                   sourceKind: "user_confirmed",
                   sourceReference: "P01_beat_5",
                 };
-                await persistCoachMemory(mem).catch(() => {});
-                setMemories((prev) => [...prev, mem]);
+                await persistCoachMemory(mem).catch((err) => {
+                  appendEvidence({
+                    kind: "error",
+                    stage: "Firestore Memories",
+                    summary: "Could not save transfer memory",
+                    errorMessage: err instanceof Error ? err.message : "Unknown error",
+                  });
+                });
+                setMemories((prev) => [mem, ...prev]);
               }
             }}
             onLogEvidence={appendEvidence}

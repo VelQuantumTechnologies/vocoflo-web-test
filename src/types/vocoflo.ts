@@ -106,7 +106,19 @@ export interface TransferPlan {
   situation: string;
   smallAction: string;
   observationToNotice?: string;
+  reviewOutcomeNote?: string;
   planStatus: "active" | "reviewed" | "archived";
+}
+
+export interface LessonProgress {
+  userId: string;
+  toolId: string;
+  currentStepIndex: number;
+  completedSteps: string[];
+  skippedSteps: string[];
+  understandingChoiceId?: string | null;
+  reviewObservationChoice?: string | null;
+  sessionCompleted: boolean;
 }
 
 export interface RoleplayTurn {

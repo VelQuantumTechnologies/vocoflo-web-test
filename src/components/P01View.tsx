@@ -21,6 +21,7 @@ import type {
   CoachMemoryItem,
   EvidenceLogEntry,
   LearnerProfile,
+  LessonProgress,
   LocalAudioClip,
   P01BeatId,
   P01MirrorChoice,
@@ -40,6 +41,7 @@ import { MicSpeakingPanel } from "./MicSpeakingPanel";
 interface P01ViewProps {
   uid: string;
   profile: LearnerProfile | null;
+  initialProgress?: LessonProgress | null;
   memories: CoachMemoryItem[];
   attempts: SpeechAttempt[];
   events: SpeechEvent[];
@@ -86,7 +88,8 @@ interface P01ViewProps {
     completedSteps: string[],
     skippedSteps: string[],
     sessionCompleted: boolean,
-    reviewChoice?: string | null
+    reviewChoice?: string | null,
+    understandingChoiceId?: string | null
   ) => Promise<void>;
   onSaveTransferPlanAndMemory: (plan: TransferPlan, saveMemory: boolean) => Promise<void>;
   onLogEvidence: (entry: Omit<EvidenceLogEntry, "id" | "timestampIso">) => void;
@@ -108,6 +111,7 @@ const BEAT_META: Array<{ id: P01BeatId; label: string; title: string }> = [
 export function P01View({
   uid,
   profile,
+  initialProgress,
   memories,
   attempts,
   events,
@@ -132,11 +136,17 @@ export function P01View({
   onLogEvidence,
   onSyncScope,
 }: P01ViewProps) {
-  const [beatIndex, setBeatIndex] = useState(0);
+  const [beatIndex, setBeatIndex] = useState(
+    Math.min(4, Math.max(0, initialProgress?.currentStepIndex ?? 0))
+  );
   const [busy, setBusy] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
-  const [completedBeats, setCompletedBeats] = useState<string[]>([]);
-  const [skippedBeats, setSkippedBeats] = useState<string[]>([]);
+  const [completedBeats, setCompletedBeats] = useState<string[]>(
+    initialProgress?.completedSteps ?? []
+  );
+  const [skippedBeats, setSkippedBeats] = useState<string[]>(
+    initialProgress?.skippedSteps ?? []
+  );
 
   // Beat 1
   const mirrorOpening = useMemo(
@@ -153,7 +163,9 @@ export function P01View({
 
   // Beat 3 (One Idea, Badge Visual, Understanding Check, Label Reflection)
   const [badgePutDown, setBadgePutDown] = useState(false);
-  const [selectedQuizChoice, setSelectedQuizChoice] = useState<string | null>(null);
+  const [selectedQuizChoice, setSelectedQuizChoice] = useState<string | null>(
+    initialProgress?.understandingChoiceId ?? null
+  );
   const [familiarLabel, setFamiliarLabel] = useState("");
   const [labelReflectionReply, setLabelReflectionReply] = useState<string | null>(null);
 
@@ -175,7 +187,9 @@ export function P01View({
     "Note one specific event afterward without stretching it into a verdict."
   );
   const [planChoiceMade, setPlanChoiceMade] = useState<"saved" | "declined" | null>(null);
-  const [sessionCompleted, setSessionCompleted] = useState(false);
+  const [sessionCompleted, setSessionCompleted] = useState(
+    Boolean(initialProgress?.sessionCompleted)
+  );
   const [nextStepChoice, setNextStepChoice] = useState<"continue" | "repeat" | "gentler" | null>(
     null
   );
@@ -219,7 +233,14 @@ export function P01View({
       BEAT_META.slice(0, nextIdx).map((b) => `${b.label}: ${b.title}`),
       BEAT_META.slice(nextIdx + 1).map((b) => `${b.label}: ${b.title}`)
     );
-    await onSaveP01Progress(nextIdx, nextCompleted, nextSkipped, sessionCompleted);
+    await onSaveP01Progress(
+      nextIdx,
+      nextCompleted,
+      nextSkipped,
+      sessionCompleted,
+      shiftFeeling,
+      selectedQuizChoice
+    );
   };
 
   const handleMirrorSubmit = async (choice: P01MirrorChoice, note?: string) => {
@@ -748,7 +769,17 @@ export function P01View({
                     <button
                       key={ch.id}
                       type="button"
-                      onClick={() => setSelectedQuizChoice(ch.id)}
+                      onClick={() => {
+                        setSelectedQuizChoice(ch.id);
+                        onSaveP01Progress(
+                          beatIndex,
+                          completedBeats,
+                          skippedBeats,
+                          sessionCompleted,
+                          shiftFeeling,
+                          ch.id
+                        );
+                      }}
                       className={`w-full rounded-xl border p-3 text-left text-xs transition ${
                         chosen
                           ? ch.id === p01Understanding.exercise?.correctChoiceId
@@ -1020,7 +1051,7 @@ export function P01View({
             <div className="flex flex-wrap gap-2 pt-2">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || !planSituation.trim() || !planAction.trim()}
                 onClick={async () => {
                   setBusy(true);
                   try {
@@ -1041,13 +1072,14 @@ export function P01View({
                       Array.from(new Set([...completedBeats, "p01_beat_5_transfer"])),
                       skippedBeats,
                       true,
-                      shiftFeeling
+                      shiftFeeling,
+                      selectedQuizChoice
                     );
                   } finally {
                     setBusy(false);
                   }
                 }}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-sagePill px-5 py-2 text-xs font-semibold text-sageInk hover:opacity-90"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-sagePill px-5 py-2 text-xs font-semibold text-sageInk hover:opacity-90 disabled:opacity-40"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 Approve &amp; Save Transfer Plan + Complete P01
@@ -1066,7 +1098,8 @@ export function P01View({
                       completedBeats,
                       Array.from(new Set([...skippedBeats, "p01_beat_5_transfer"])),
                       true,
-                      shiftFeeling
+                      shiftFeeling,
+                      selectedQuizChoice
                     );
                   } finally {
                     setBusy(false);
