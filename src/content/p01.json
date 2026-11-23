@@ -1,0 +1,683 @@
+{
+  "id": "P01",
+  "title": "Your Identity With Your Speech",
+  "category": "psychological",
+  "contentVersion": "1.2.0-scripted-review",
+  "status": "authored_review_draft",
+  "learningGoals": [
+    "Notice a speaking label",
+    "Separate an event from a verdict",
+    "Try a specific observation"
+  ],
+  "deeperExplanation": {
+    "question": "Does loosening identity mean lowering my standards?",
+    "answer": "You can keep a high standard for the work while allowing the person doing it to learn. Before a meeting, a standard might help you check your facts. During the meeting, protecting an image of always being impressive may consume attention you need for the discussion. Try putting the standard in the preparation and the purpose in the conversation. Afterwards, review a specific action rather than deciding whether you lived up to your whole identity."
+  },
+  "authoringStatus": "complete_script_review_draft",
+  "founderApproved": false,
+  "productionReleaseAllowed": false,
+  "practiceCardId": "P01-focused-v1",
+  "sections": [
+    {
+      "id": "P01-01",
+      "type": "welcome",
+      "narration": "Welcome. In this session, we will explore your identity with your speech: the picture you carry of yourself as a speaker. Perhaps you see yourself as someone who struggles to speak. Or perhaps people see you as confident, and you feel pressure to maintain that impression. Either picture can become something you feel you have to protect.\n\nFirst, we will notice a speaking label. Then we will separate a particular event from a verdict about you. Finally, we will try a more specific description and a short speaking experiment. We will use examples, a simple diagram and your own observations. You can pause, ask me a question, or switch to reading at any point. You do not need to decide who you are before we begin.",
+      "learningPurpose": "Notice a speaking label",
+      "segments": [
+        {
+          "id": "P01-01-S01",
+          "text": "Welcome."
+        },
+        {
+          "id": "P01-01-S02",
+          "text": "In this session, we will explore your identity with your speech: the picture you carry of yourself as a speaker."
+        },
+        {
+          "id": "P01-01-S03",
+          "text": "Perhaps you see yourself as someone who struggles to speak."
+        },
+        {
+          "id": "P01-01-S04",
+          "text": "Or perhaps people see you as confident, and you feel pressure to maintain that impression."
+        },
+        {
+          "id": "P01-01-S05",
+          "text": "Either picture can become something you feel you have to protect."
+        },
+        {
+          "id": "P01-01-S06",
+          "text": "First, we will notice a speaking label."
+        },
+        {
+          "id": "P01-01-S07",
+          "text": "Then we will separate a particular event from a verdict about you."
+        },
+        {
+          "id": "P01-01-S08",
+          "text": "Finally, we will try a more specific description and a short speaking experiment."
+        },
+        {
+          "id": "P01-01-S09",
+          "text": "We will use examples, a simple diagram and your own observations."
+        },
+        {
+          "id": "P01-01-S10",
+          "text": "You can pause, ask me a question, or switch to reading at any point."
+        },
+        {
+          "id": "P01-01-S11",
+          "text": "You do not need to decide who you are before we begin."
+        }
+      ],
+      "visual": {
+        "kind": "learning_goals",
+        "title": "What we will explore",
+        "labels": [
+          "Notice a speaking label",
+          "Separate an event from a verdict",
+          "Try a specific observation"
+        ],
+        "altText": "This session explores: Notice a speaking label; Separate an event from a verdict; Try a specific observation."
+      }
+    },
+    {
+      "id": "P01-02",
+      "type": "explain",
+      "narration": "Here, identity means the descriptions you treat as statements about who you are. A description might be: I sometimes stammer. Another might be: I am a confident speaker. Descriptions can help us understand our experience. The question is how tightly we hold them.\n\nA description can turn into a rule to protect. I must always sound confident gives you an extra job while you are trying to communicate. I am a poor speaker can make one difficult moment seem like proof of a permanent limit. These are different descriptions, but either can restrict what you feel free to try.\n\nWe are not asking you to remove your history, values or ambition. We are exploring whether one speaking moment needs to decide your whole identity.",
+      "learningPurpose": "Notice a speaking label",
+      "segments": [
+        {
+          "id": "P01-02-S01",
+          "text": "Here, identity means the descriptions you treat as statements about who you are."
+        },
+        {
+          "id": "P01-02-S02",
+          "text": "A description might be: I sometimes stammer."
+        },
+        {
+          "id": "P01-02-S03",
+          "text": "Another might be: I am a confident speaker."
+        },
+        {
+          "id": "P01-02-S04",
+          "text": "Descriptions can help us understand our experience."
+        },
+        {
+          "id": "P01-02-S05",
+          "text": "The question is how tightly we hold them."
+        },
+        {
+          "id": "P01-02-S06",
+          "text": "A description can turn into a rule to protect."
+        },
+        {
+          "id": "P01-02-S07",
+          "text": "I must always sound confident gives you an extra job while you are trying to communicate."
+        },
+        {
+          "id": "P01-02-S08",
+          "text": "I am a poor speaker can make one difficult moment seem like proof of a permanent limit."
+        },
+        {
+          "id": "P01-02-S09",
+          "text": "These are different descriptions, but either can restrict what you feel free to try."
+        },
+        {
+          "id": "P01-02-S10",
+          "text": "We are not asking you to remove your history, values or ambition."
+        },
+        {
+          "id": "P01-02-S11",
+          "text": "We are exploring whether one speaking moment needs to decide your whole identity."
+        }
+      ],
+      "visual": {
+        "kind": "comparison_cards",
+        "title": "Description or rule?",
+        "labels": [
+          "A description: I sometimes stammer",
+          "A rule to protect: I must always sound confident"
+        ],
+        "altText": "A description names an experience. A rigid rule demands that you preserve an image."
+      },
+      "exercise": {
+        "kind": "pause_and_notice",
+        "prompt": "What label did you notice?"
+      }
+    },
+    {
+      "id": "P01-03",
+      "type": "explain",
+      "narration": "Imagine introducing yourself at a meeting. A speaking event happens: I repeated part of my name. An interpretation might be: They must think I am incapable. A wider conclusion might follow: I am a poor speaker. Notice that these are three different things. The event happened. The interpretation is a guess about other people. The conclusion stretches one moment into a statement about you.\n\nA more specific account would be: I repeated part of my name during this introduction. That does not tell us everything about your ability, your value or how the meeting will go. You may still feel embarrassed. A specific description does not require pretending the moment felt good.\n\nNow consider the opposite picture: I must always sound confident. One hesitation may feel threatening because it seems to contradict that image. You can value clear communication without requiring every attempt to protect an impressive identity. Keep the standard useful in preparation; give your message room during the conversation.",
+      "learningPurpose": "Notice a speaking label",
+      "segments": [
+        {
+          "id": "P01-03-S01",
+          "text": "Imagine introducing yourself at a meeting."
+        },
+        {
+          "id": "P01-03-S02",
+          "text": "A speaking event happens: I repeated part of my name."
+        },
+        {
+          "id": "P01-03-S03",
+          "text": "An interpretation might be: They must think I am incapable."
+        },
+        {
+          "id": "P01-03-S04",
+          "text": "A wider conclusion might follow: I am a poor speaker."
+        },
+        {
+          "id": "P01-03-S05",
+          "text": "Notice that these are three different things."
+        },
+        {
+          "id": "P01-03-S06",
+          "text": "The event happened."
+        },
+        {
+          "id": "P01-03-S07",
+          "text": "The interpretation is a guess about other people."
+        },
+        {
+          "id": "P01-03-S08",
+          "text": "The conclusion stretches one moment into a statement about you."
+        },
+        {
+          "id": "P01-03-S09",
+          "text": "A more specific account would be: I repeated part of my name during this introduction."
+        },
+        {
+          "id": "P01-03-S10",
+          "text": "That does not tell us everything about your ability, your value or how the meeting will go."
+        },
+        {
+          "id": "P01-03-S11",
+          "text": "You may still feel embarrassed."
+        },
+        {
+          "id": "P01-03-S12",
+          "text": "A specific description does not require pretending the moment felt good."
+        },
+        {
+          "id": "P01-03-S13",
+          "text": "Now consider the opposite picture: I must always sound confident."
+        },
+        {
+          "id": "P01-03-S14",
+          "text": "One hesitation may feel threatening because it seems to contradict that image."
+        },
+        {
+          "id": "P01-03-S15",
+          "text": "You can value clear communication without requiring every attempt to protect an impressive identity."
+        },
+        {
+          "id": "P01-03-S16",
+          "text": "Keep the standard useful in preparation; give your message room during the conversation."
+        }
+      ],
+      "visual": {
+        "kind": "three_part_map",
+        "title": "A closer look",
+        "labels": [
+          "Speaking event",
+          "Wider verdict",
+          "Specific observation"
+        ],
+        "altText": "Three parts to distinguish: Speaking event, Wider verdict, Specific observation. These are a learning map, not a diagnosis."
+      },
+      "exercise": {
+        "kind": "pause_and_notice",
+        "prompt": "Did protecting that label take attention?"
+      }
+    },
+    {
+      "id": "P01-04",
+      "type": "visual",
+      "narration": "Think of a name badge that has become a suit of armour. It helped people recognise you, but now every movement has to fit inside it. You can put the badge on the table for one conversation. Your experience and values remain available. This is a way to picture a rigid description, not a claim that identity is something physical. You can keep the parts of a description that are useful and leave room for a new experience.",
+      "learningPurpose": "Notice a speaking label",
+      "segments": [
+        {
+          "id": "P01-04-S01",
+          "text": "Think of a name badge that has become a suit of armour."
+        },
+        {
+          "id": "P01-04-S02",
+          "text": "It helped people recognise you, but now every movement has to fit inside it."
+        },
+        {
+          "id": "P01-04-S03",
+          "text": "You can put the badge on the table for one conversation."
+        },
+        {
+          "id": "P01-04-S04",
+          "text": "Your experience and values remain available."
+        },
+        {
+          "id": "P01-04-S05",
+          "text": "This is a way to picture a rigid description, not a claim that identity is something physical."
+        },
+        {
+          "id": "P01-04-S06",
+          "text": "You can keep the parts of a description that are useful and leave room for a new experience."
+        }
+      ],
+      "visual": {
+        "kind": "authored_metaphor_illustration",
+        "title": "Name badge",
+        "labels": [
+          "Label held tightly",
+          "Label can stay flexible"
+        ],
+        "altText": "Think of a name badge that has become a suit of armour. It helped people recognise you, but now every movement has to fit inside it. You can put the badge on the table for one conversation. Your experience and values remain available. This is a way to picture a rigid description, not a claim that identity is something physical. You can keep the parts of a description that are useful and leave room for a new experience."
+      }
+    },
+    {
+      "id": "P01-05",
+      "type": "contrast",
+      "narration": "Compare these statements. I am a poor speaker is a broad verdict. I repeated part of my name during this introduction describes a particular event. I must never hesitate in an important meeting is a performance rule.\n\nA specific description gives you something you can explore: the situation, what you were trying to say, and how it felt. It does not demand a positive story. Now choose the statement that describes one speaking event.",
+      "learningPurpose": "Separate an event from a verdict",
+      "segments": [
+        {
+          "id": "P01-05-S01",
+          "text": "Compare these statements."
+        },
+        {
+          "id": "P01-05-S02",
+          "text": "I am a poor speaker is a broad verdict."
+        },
+        {
+          "id": "P01-05-S03",
+          "text": "I repeated part of my name during this introduction describes a particular event."
+        },
+        {
+          "id": "P01-05-S04",
+          "text": "I must never hesitate in an important meeting is a performance rule."
+        },
+        {
+          "id": "P01-05-S05",
+          "text": "A specific description gives you something you can explore: the situation, what you were trying to say, and how it felt."
+        },
+        {
+          "id": "P01-05-S06",
+          "text": "It does not demand a positive story."
+        },
+        {
+          "id": "P01-05-S07",
+          "text": "Now choose the statement that describes one speaking event."
+        }
+      ],
+      "visual": {
+        "kind": "choice_comparison",
+        "title": "Which statement describes one event?",
+        "labels": [
+          "I am a poor speaker.",
+          "I repeated part of my name in today's introduction.",
+          "I must never hesitate."
+        ],
+        "altText": "Three options: I am a poor speaker. / I repeated part of my name in today's introduction. / I must never hesitate."
+      },
+      "exercise": {
+        "kind": "understanding_check",
+        "prompt": "Which statement describes one event?",
+        "choices": [
+          {
+            "id": "A",
+            "text": "I am a poor speaker.",
+            "feedback": "Consider the distinction again. The second statement names an event and its setting. The others are a broad verdict and a performance rule."
+          },
+          {
+            "id": "B",
+            "text": "I repeated part of my name in today's introduction.",
+            "feedback": "Yes. The second statement names an event and its setting. The others are a broad verdict and a performance rule."
+          },
+          {
+            "id": "C",
+            "text": "I must never hesitate.",
+            "feedback": "Consider the distinction again. The second statement names an event and its setting. The others are a broad verdict and a performance rule."
+          }
+        ],
+        "correctChoiceId": "B"
+      }
+    },
+    {
+      "id": "P01-06",
+      "type": "reflection",
+      "narration": "Think of a familiar description of yourself as a speaker. You can write it or say it privately. If it contains always, never or must, notice that word. You do not have to challenge every description or manufacture a positive replacement.\n\nIf useful, choose one recent situation and describe it more specifically: where you were, whom you were speaking with, and what happened. Keep what you know, and leave other people's unspoken opinions uncertain. Compare the two descriptions. Notice pressure, resistance, relief or no clear difference. You can also skip this reflection.",
+      "learningPurpose": "Separate an event from a verdict",
+      "segments": [
+        {
+          "id": "P01-06-S01",
+          "text": "Think of a familiar description of yourself as a speaker."
+        },
+        {
+          "id": "P01-06-S02",
+          "text": "You can write it or say it privately."
+        },
+        {
+          "id": "P01-06-S03",
+          "text": "If it contains always, never or must, notice that word."
+        },
+        {
+          "id": "P01-06-S04",
+          "text": "You do not have to challenge every description or manufacture a positive replacement."
+        },
+        {
+          "id": "P01-06-S05",
+          "text": "If useful, choose one recent situation and describe it more specifically: where you were, whom you were speaking with, and what happened."
+        },
+        {
+          "id": "P01-06-S06",
+          "text": "Keep what you know, and leave other people's unspoken opinions uncertain."
+        },
+        {
+          "id": "P01-06-S07",
+          "text": "Compare the two descriptions."
+        },
+        {
+          "id": "P01-06-S08",
+          "text": "Notice pressure, resistance, relief or no clear difference."
+        },
+        {
+          "id": "P01-06-S09",
+          "text": "You can also skip this reflection."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "private_notes",
+        "prompt": "Save a familiar description and, if useful, a more specific observation about one recent situation.",
+        "questions": [
+          "What label did you notice?",
+          "Did protecting that label take attention?",
+          "What could you describe more specifically?"
+        ]
+      }
+    },
+    {
+      "id": "P01-07",
+      "type": "speaking",
+      "narration": "Let us try a small speaking experience. Tell me about something you enjoy outside work. Speak in your usual way; about 45 seconds is enough. A shorter attempt is fine. Record only when you choose. Afterwards save one observation rather than decide what this says about you as a person.",
+      "learningPurpose": "Separate an event from a verdict",
+      "segments": [
+        {
+          "id": "P01-07-S01",
+          "text": "Let us try a small speaking experience."
+        },
+        {
+          "id": "P01-07-S02",
+          "text": "Tell me about something you enjoy outside work."
+        },
+        {
+          "id": "P01-07-S03",
+          "text": "Speak in your usual way; about 45 seconds is enough."
+        },
+        {
+          "id": "P01-07-S04",
+          "text": "A shorter attempt is fine."
+        },
+        {
+          "id": "P01-07-S05",
+          "text": "Record only when you choose."
+        },
+        {
+          "id": "P01-07-S06",
+          "text": "Afterwards save one observation rather than decide what this says about you as a person."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "recording",
+        "prompt": "Tell me about something you enjoy outside work. Speak in your usual way; about 45 seconds is enough.",
+        "reflectionQuestions": [
+          "What label did you notice?",
+          "Did protecting that label take attention?",
+          "What could you describe more specifically?"
+        ]
+      }
+    },
+    {
+      "id": "P01-08",
+      "type": "speaking",
+      "narration": "For this next attempt, keep one clear purpose. Keep the same topic. Before speaking, you may use: For this attempt, I am sharing one interest. Then give attention to what you want to share. You can listen back if useful, or reflect without replaying. Changed, unchanged or uncertain experiences are all information.",
+      "learningPurpose": "Separate an event from a verdict",
+      "segments": [
+        {
+          "id": "P01-08-S01",
+          "text": "For this next attempt, keep one clear purpose."
+        },
+        {
+          "id": "P01-08-S02",
+          "text": "Keep the same topic."
+        },
+        {
+          "id": "P01-08-S03",
+          "text": "Before speaking, you may use: For this attempt, I am sharing one interest."
+        },
+        {
+          "id": "P01-08-S04",
+          "text": "Then give attention to what you want to share."
+        },
+        {
+          "id": "P01-08-S05",
+          "text": "You can listen back if useful, or reflect without replaying."
+        },
+        {
+          "id": "P01-08-S06",
+          "text": "Changed, unchanged or uncertain experiences are all information."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "recording",
+        "prompt": "Keep the same topic. Before speaking, you may use: For this attempt, I am sharing one interest. Then give attention to what you want to share.",
+        "reflectionQuestions": [
+          "What label did you notice?",
+          "Did protecting that label take attention?",
+          "What could you describe more specifically?"
+        ]
+      }
+    },
+    {
+      "id": "P01-09",
+      "type": "scripted_roleplay",
+      "narration": "We will now use three prepared prompts for guided rehearsal. Each prompt is fixed, so it will not adapt to your reply. Take your time, answer in your own words, and continue when ready. Your task is to explore today’s approach in the situation, not to produce a perfect version.",
+      "learningPurpose": "Try a specific observation",
+      "segments": [
+        {
+          "id": "P01-09-S01",
+          "text": "We will now use three prepared prompts for guided rehearsal."
+        },
+        {
+          "id": "P01-09-S02",
+          "text": "Each prompt is fixed, so it will not adapt to your reply."
+        },
+        {
+          "id": "P01-09-S03",
+          "text": "Take your time, answer in your own words, and continue when ready."
+        },
+        {
+          "id": "P01-09-S04",
+          "text": "Your task is to explore today’s approach in the situation, not to produce a perfect version."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "scripted_roleplay",
+        "label": "Guided rehearsal",
+        "scenario": "You introduce yourself at a meeting. One word catches. Before the introduction is over, a verdict appears: I am not the confident person they thought I was. A short speaking event has become a conclusion about who you are.",
+        "partnerPrompts": [
+          "Tell me something you enjoy outside work.",
+          "What made you interested in it?",
+          "What would you like me to understand about it?"
+        ]
+      }
+    },
+    {
+      "id": "P01-10",
+      "type": "review",
+      "narration": "What did you notice? Something may have changed, things may have felt much the same, or you may be unsure. Each is a valid observation. I cannot know what you felt just from whether words came easily.\n\nLoosening identity does not mean pretending you have no history or that a difficult moment did not matter. It means allowing a description to stay open enough for another experience. If a label returns, you can notice it and return to the message. You do not need to argue with it until it disappears.\n\nDoes this mean lowering your standards? You can prepare carefully and still allow yourself to learn. After a conversation, review a specific action rather than deciding whether you lived up to your whole identity.",
+      "learningPurpose": "Try a specific observation",
+      "segments": [
+        {
+          "id": "P01-10-S01",
+          "text": "What did you notice?"
+        },
+        {
+          "id": "P01-10-S02",
+          "text": "Something may have changed, things may have felt much the same, or you may be unsure."
+        },
+        {
+          "id": "P01-10-S03",
+          "text": "Each is a valid observation."
+        },
+        {
+          "id": "P01-10-S04",
+          "text": "I cannot know what you felt just from whether words came easily."
+        },
+        {
+          "id": "P01-10-S05",
+          "text": "Loosening identity does not mean pretending you have no history or that a difficult moment did not matter."
+        },
+        {
+          "id": "P01-10-S06",
+          "text": "It means allowing a description to stay open enough for another experience."
+        },
+        {
+          "id": "P01-10-S07",
+          "text": "If a label returns, you can notice it and return to the message."
+        },
+        {
+          "id": "P01-10-S08",
+          "text": "You do not need to argue with it until it disappears."
+        },
+        {
+          "id": "P01-10-S09",
+          "text": "Does this mean lowering your standards?"
+        },
+        {
+          "id": "P01-10-S10",
+          "text": "You can prepare carefully and still allow yourself to learn."
+        },
+        {
+          "id": "P01-10-S11",
+          "text": "After a conversation, review a specific action rather than deciding whether you lived up to your whole identity."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "review",
+        "prompt": "Compare one observation from your attempts.",
+        "questions": [
+          "What label did you notice?",
+          "Did protecting that label take attention?",
+          "What could you describe more specifically?"
+        ],
+        "observationChoices": [
+          "Something changed",
+          "Much the same",
+          "Not sure"
+        ]
+      }
+    },
+    {
+      "id": "P01-11",
+      "type": "transfer",
+      "narration": "There are two different places to use what we have explored. In focused practice, you can deliberately notice a label and try a specific observation. In a real conversation, give most of your attention to the message and the other person. You do not need to keep examining your identity while you speak.\n\nA familiar support can be available if it helps. Choose one ordinary introduction this week and a small communication purpose, such as sharing one useful thing. Afterwards, if you want, describe one event without turning it into a verdict about yourself. You can leave the result uncertain.",
+      "learningPurpose": "Try a specific observation",
+      "segments": [
+        {
+          "id": "P01-11-S01",
+          "text": "There are two different places to use what we have explored."
+        },
+        {
+          "id": "P01-11-S02",
+          "text": "In focused practice, you can deliberately notice a label and try a specific observation."
+        },
+        {
+          "id": "P01-11-S03",
+          "text": "In a real conversation, give most of your attention to the message and the other person."
+        },
+        {
+          "id": "P01-11-S04",
+          "text": "You do not need to keep examining your identity while you speak."
+        },
+        {
+          "id": "P01-11-S05",
+          "text": "A familiar support can be available if it helps."
+        },
+        {
+          "id": "P01-11-S06",
+          "text": "Choose one ordinary introduction this week and a small communication purpose, such as sharing one useful thing."
+        },
+        {
+          "id": "P01-11-S07",
+          "text": "Afterwards, if you want, describe one event without turning it into a verdict about yourself."
+        },
+        {
+          "id": "P01-11-S08",
+          "text": "You can leave the result uncertain."
+        }
+      ],
+      "visual": {
+        "kind": "comparison_cards",
+        "title": "Two different attention goals",
+        "labels": [
+          "Focused practice: explore this tool",
+          "Conversation: share meaning and listen"
+        ],
+        "altText": "Focused practice explores one tool. Conversation gives attention to the message and the listener, with familiar supports available."
+      },
+      "exercise": {
+        "kind": "plan",
+        "prompt": "Choose one ordinary introduction this week. Give yourself the small task of sharing one useful thing, then record what happened without a verdict about yourself.",
+        "fields": [
+          "situation",
+          "smallAction",
+          "observationToNotice"
+        ]
+      }
+    },
+    {
+      "id": "P01-12",
+      "type": "close",
+      "narration": "Three things to take with you. A speaking description is not the whole of who you are. One event can be described without becoming a permanent verdict. And a high standard can guide your preparation without becoming an image you must defend in every sentence.\n\nSave one observation in your own words if you wish. You can finish here, practise this tool with a new prompt, or have a conversation where the focus is what you want to say. You choose the next step.",
+      "learningPurpose": "Try a specific observation",
+      "segments": [
+        {
+          "id": "P01-12-S01",
+          "text": "Three things to take with you."
+        },
+        {
+          "id": "P01-12-S02",
+          "text": "A speaking description is not the whole of who you are."
+        },
+        {
+          "id": "P01-12-S03",
+          "text": "One event can be described without becoming a permanent verdict."
+        },
+        {
+          "id": "P01-12-S04",
+          "text": "And a high standard can guide your preparation without becoming an image you must defend in every sentence."
+        },
+        {
+          "id": "P01-12-S05",
+          "text": "Save one observation in your own words if you wish."
+        },
+        {
+          "id": "P01-12-S06",
+          "text": "You can finish here, practise this tool with a new prompt, or have a conversation where the focus is what you want to say."
+        },
+        {
+          "id": "P01-12-S07",
+          "text": "You choose the next step."
+        }
+      ],
+      "visual": null,
+      "exercise": {
+        "kind": "save_observation",
+        "prompt": "What could you describe more specifically?"
+      }
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "ttsModel": "gemini-3.8-flash-tts",
+  "cacheVersion": "tts_v3",
+  "generatedAtIso": "2026-11-19T15:58:25.589Z",
+  "entries": [
+    {
+      "cueId": "checkin_stage1_welcome",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "6428bfb427f8e1686096204b",
+      "assetPath": "narration/checkin_stage1_welcome.wav",
+      "text": "Welcome to your free speaking check-in. Plan about fifteen to twenty unhurried minutes together… We will map the everyday speaking moments that matter to you, explore four distinct speaking conditions—personal sharing, describing a scene, reading aloud, and a live conversation—try one small shift in attention, and look at what you noticed. Nothing here is graded or judged.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_stage2_context",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "88153ffd9d3b0985990a20c9",
+      "assetPath": "narration/checkin_stage2_context.wav",
+      "text": "Before we use the microphone, tell me a little about where speaking shows up in your week… Which everyday situations feel most important right now, and what would you like to carry into them?",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_sample1_intro",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "4c59c005e51bef01d0737ae7",
+      "assetPath": "narration/checkin_sample1_intro.wav",
+      "text": "Tell me a little about yourself and what you would like help with when speaking. Take all the time you want—I'm listening.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_sample2_picture",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "01bc02ff2e7624ac68083f81",
+      "assetPath": "narration/checkin_sample2_picture.wav",
+      "text": "Next, take a look at the picture below and describe what you see in your own words—what's happening in the scene, the people, or any small details that catch your eye. There's no right or wrong order.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_sample3_reading",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "5cdd1d0e43a258b44e67af15",
+      "assetPath": "narration/checkin_sample3_reading.wav",
+      "text": "Whenever you're ready, read the short passage on the card below aloud in your usual way. There's no target pace or performance—just read it naturally.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_sample4_intro",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "4313a999da1ffac628023dbb",
+      "assetPath": "narration/checkin_sample4_intro.wav",
+      "text": "For this last sample, you'll have a short, natural catch-up chat with a friendly colleague. You'll hear a different voice for your conversation partner, and we'll go for up to six back-and-forth replies—or you can wrap up early anytime. Tap Start Conversation whenever you're ready.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_sample4_partner_opener",
+      "scope": "check_in",
+      "role": "ROLEPLAY_PARTNER",
+      "voiceName": "Orus",
+      "cacheKey": "46be90357a144f966273911c",
+      "assetPath": "narration/checkin_sample4_partner_opener.wav",
+      "text": "Hi! Good to catch up with you. How has your week been going, and what have you been spending time on?",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_stage4_shift_stammering",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "85b8d238dc801020fd317ebd",
+      "assetPath": "narration/checkin_stage4_shift_stammering.wav",
+      "text": "Before we wrap up this check-in, let's try one gentle experiment… Pick one short thing from earlier and say it with just one purpose: letting your listener understand your point, even if you stammer on the way. Notice afterwards whether anything felt slightly lighter.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "checkin_stage4_shift_stuttering",
+      "scope": "check_in",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "095ea8986bb986f70611a4e3",
+      "assetPath": "narration/checkin_stage4_shift_stuttering.wav",
+      "text": "Before we wrap up this check-in, let's try one gentle experiment… Pick one short thing from earlier and say it with just one purpose: letting your listener understand your point, even if you stutter on the way. Notice afterwards whether anything felt slightly lighter.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_welcome",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "4a3d878e22a2fa87cf3c8b81",
+      "assetPath": "narration/p01_step_welcome.wav",
+      "text": "Welcome. In this session, we will explore your identity with your speech: the picture you carry of yourself as a speaker. Perhaps you see yourself as someone who struggles to speak. Or perhaps people see you as confident, and you feel pressure to maintain that impression. Either picture can become something you feel you have to protect.\n\nFirst, we will notice a speaking label. Then we will separate a particular event from a verdict about you. Finally, we will try a more specific description and a short speaking experiment. We will use examples, a simple diagram and your own observations. You can pause, ask me a question, or switch to reading at any point. You do not need to decide who you are before we begin.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_early_attempt",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "50facd337e719661cd30c4ca",
+      "assetPath": "narration/p01_step_early_attempt.wav",
+      "text": "Let us try a small speaking experience. Tell me about something you enjoy outside work. Speak in your usual way; about 45 seconds is enough. A shorter attempt is fine. Record only when you choose. Afterwards save one observation rather than decide what this says about you as a person.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_meaning_visual",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "9478e7d95e5887a99cfa3fa6",
+      "assetPath": "narration/p01_step_meaning_visual.wav",
+      "text": "Think of a name badge that has become a suit of armour. It helped people recognise you, but now every movement has to fit inside it. You can put the badge on the table for one conversation. Your experience and values remain available. This is a way to picture a rigid description, not a claim that identity is something physical. You can keep the parts of a description that are useful and leave room for a new experience.\n\nHere, identity means the descriptions you treat as statements about who you are. A description might be: I sometimes stammer. Another might be: I am a confident speaker. Descriptions can help us understand our experience. The question is how tightly we hold them.\n\nA description can turn into a rule to protect. I must always sound confident gives you an extra job while you are trying to communicate. I am a poor speaker can make one difficult moment seem like proof of a permanent limit. These are different descriptions, but either can restrict what you feel free to try.\n\nWe are not asking you to remove your history, values or ambition. We are exploring whether one speaking moment needs to decide your whole identity.\n\nImagine introducing yourself at a meeting. A speaking event happens: I repeated part of my name. An interpretation might be: They must think I am incapable. A wider conclusion might follow: I am a poor speaker. Notice that these are three different things. The event happened. The interpretation is a guess about other people. The conclusion stretches one moment into a statement about you.\n\nA more specific account would be: I repeated part of my name during this introduction. That does not tell us everything about your ability, your value or how the meeting will go. You may still feel embarrassed. A specific description does not require pretending the moment felt good.\n\nNow consider the opposite picture: I must always sound confident. One hesitation may feel threatening because it seems to contradict that image. You can value clear communication without requiring every attempt to protect an impressive identity. Keep the standard useful in preparation; give your message room during the conversation.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_understanding",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "90d8626f5055aa2b80ba7738",
+      "assetPath": "narration/p01_step_understanding.wav",
+      "text": "Compare these statements. I am a poor speaker is a broad verdict. I repeated part of my name during this introduction describes a particular event. I must never hesitate in an important meeting is a performance rule.\n\nA specific description gives you something you can explore: the situation, what you were trying to say, and how it felt. It does not demand a positive story. Now choose the statement that describes one speaking event.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_private_reflection",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "e2e641f930af2dd1d23267ce",
+      "assetPath": "narration/p01_step_private_reflection.wav",
+      "text": "Think of a familiar description of yourself as a speaker. You can write it or say it privately. If it contains always, never or must, notice that word. You do not have to challenge every description or manufacture a positive replacement.\n\nIf useful, choose one recent situation and describe it more specifically: where you were, whom you were speaking with, and what happened. Keep what you know, and leave other people's unspoken opinions uncertain. Compare the two descriptions. Notice pressure, resistance, relief or no clear difference. You can also skip this reflection.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_purpose_experiment",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "70679232ccf21ce9949ace6e",
+      "assetPath": "narration/p01_step_purpose_experiment.wav",
+      "text": "For this next attempt, keep one clear purpose. Keep the same topic. Before speaking, you may use: For this attempt, I am sharing one interest. Then give attention to what you want to share. You can listen back if useful, or reflect without replaying. Changed, unchanged or uncertain experiences are all information.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_prepared_rehearsal",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "e1b8e35483fc5e0011a3c70b",
+      "assetPath": "narration/p01_step_prepared_rehearsal.wav",
+      "text": "We will now use three prepared prompts for guided rehearsal. Each prompt is fixed, so it will not adapt to your reply. Take your time, answer in your own words, and continue when ready. Your task is to explore today’s approach in the situation, not to produce a perfect version.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_step_review_transfer",
+      "scope": "tool_p01",
+      "role": "COCO",
+      "voiceName": "Sulafat",
+      "cacheKey": "a8ff62078045e1198282c326",
+      "assetPath": "narration/p01_step_review_transfer.wav",
+      "text": "There are two different places to use what we have explored. In focused practice, you can deliberately notice a label and try a specific observation. In a real conversation, give most of your attention to the message and the other person. You do not need to keep examining your identity while you speak.\n\nA familiar support can be available if it helps. Choose one ordinary introduction this week and a small communication purpose, such as sharing one useful thing. Afterwards, if you want, describe one event without turning it into a verdict about yourself. You can leave the result uncertain.\n\nWhat did you notice? Something may have changed, things may have felt much the same, or you may be unsure. Each is a valid observation. I cannot know what you felt just from whether words came easily.\n\nLoosening identity does not mean pretending you have no history or that a difficult moment did not matter. It means allowing a description to stay open enough for another experience. If a label returns, you can notice it and return to the message. You do not need to argue with it until it disappears.\n\nDoes this mean lowering your standards? You can prepare carefully and still allow yourself to learn. After a conversation, review a specific action rather than deciding whether you lived up to your whole identity.\n\nThree things to take with you. A speaking description is not the whole of who you are. One event can be described without becoming a permanent verdict. And a high standard can guide your preparation without becoming an image you must defend in every sentence.\n\nSave one observation in your own words if you wish. You can finish here, practise this tool with a new prompt, or have a conversation where the focus is what you want to say. You choose the next step.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_rehearsal_prompt_1",
+      "scope": "tool_p01",
+      "role": "ROLEPLAY_PARTNER",
+      "voiceName": "Orus",
+      "cacheKey": "8d14ed85229e67aa5900ea1d",
+      "assetPath": "narration/p01_rehearsal_prompt_1.wav",
+      "text": "Tell me something you enjoy outside work.",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_rehearsal_prompt_2",
+      "scope": "tool_p01",
+      "role": "ROLEPLAY_PARTNER",
+      "voiceName": "Orus",
+      "cacheKey": "3d50a269ef0d3ece7258b58c",
+      "assetPath": "narration/p01_rehearsal_prompt_2.wav",
+      "text": "What made you interested in it?",
+      "status": "bundled"
+    },
+    {
+      "cueId": "p01_rehearsal_prompt_3",
+      "scope": "tool_p01",
+      "role": "ROLEPLAY_PARTNER",
+      "voiceName": "Orus",
+      "cacheKey": "5e7e0f6c89bb0027c8c99718",
+      "assetPath": "narration/p01_rehearsal_prompt_3.wav",
+      "text": "What would you like me to understand about it?",
+      "status": "bundled"
+    }
+  ]
+}
