@@ -25,6 +25,7 @@ interface AskCocoDrawerProps {
   voiceState: CoachVoiceState;
   onPlayAudio: (text: string, role: VoiceRole) => void;
   onPauseAudio: () => void;
+  isGuestMode?: boolean;
 }
 
 const SUGGESTED_QUESTIONS = [
@@ -45,6 +46,7 @@ export function AskCocoDrawer({
   voiceState,
   onPlayAudio,
   onPauseAudio,
+  isGuestMode = false,
 }: AskCocoDrawerProps) {
   const [draft, setDraft] = useState("");
 
@@ -87,8 +89,9 @@ export function AskCocoDrawer({
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <div className="rounded-xl border border-emeraldBorder bg-emeraldSurface p-3 text-xs text-mutedSage">
-            Coco answers from what you have actually completed so far and your shared Check-In
-            memories—without spoiling unreached steps.
+            {isGuestMode
+              ? "Guest Review Mode: Coco answers are clearly labeled simulations scoped to your current guest progress (no live AI calls)."
+              : "Coco answers from what you have actually completed so far and your shared Check-In memories—without spoiling unreached steps."}
           </div>
 
           {micRecordingActive ? (
@@ -128,6 +131,7 @@ export function AskCocoDrawer({
                 </div>
                 <CocoAudioPanel
                   title="Coco's Answer"
+                  badge={isGuestMode ? "Simulated (Guest Mode)" : undefined}
                   text={ex.answer}
                   role="COCO"
                   voiceState={voiceState}

@@ -1,6 +1,8 @@
 "use client";
 
 import { getFirebaseClientAuth, getWebAppCheckToken } from "@/lib/firebase/client";
+import { isGuestReviewModeEnabled } from "@/lib/guest/config";
+import { simulateGuestGatewayCall } from "@/lib/guest/simulator";
 import type { AllowedGatewayAction, AllowedGatewayPurpose } from "./gateway-validation";
 
 export interface GatewayCallResult {
@@ -22,8 +24,9 @@ export async function callTrustedAiGateway(params: {
   attemptOrSessionId: string;
   payload: Record<string, unknown>;
   operationId?: string;
+  guestMode?: boolean;
   onLog?: (entry: {
-    kind: "gateway_call" | "error";
+    kind: "gateway_call" | "ui_event" | "error";
     summary: string;
     model?: string;
     latencyMs?: number;
@@ -31,6 +34,31 @@ export async function callTrustedAiGateway(params: {
     errorMessage?: string;
   }) => void;
 }): Promise<GatewayCallResult> {
+  if (params.guestMode) {
+    if (!isGuestReviewModeEnabled()) {
+      return {
+        ok: false,
+        httpStatus: 403,
+        model: "",
+        text: "",
+        audioBase64: null,
+        audioMimeType: null,
+        inputTokens: null,
+        outputTokens: null,
+        latencyMs: 0,
+        errorMessage: "Guest Review Mode is currently disabled.",
+      };
+    }
+    const simResult = await simulateGuestGatewayCall(params);
+    params.onLog?.({
+      kind: "ui_event",
+      summary: `Simulated ${params.action} (${params.purpose}) in Guest Mode — real AI gateway not called`,
+      model: simResult.model,
+      latencyMs: simResult.latencyMs,
+    });
+    return simResult;
+  }
+
   const auth = getFirebaseClientAuth();
   const user = auth?.currentUser;
   if (!user) {

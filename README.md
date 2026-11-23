@@ -35,6 +35,7 @@ Copy `.env.example` to `.env.local` (never commit `.env.local` or debug tokens):
 - `NEXT_PUBLIC_FIRESTORE_DATABASE_ID` (`ai-studio-android-vocofloh-b15877a9-aed4-44f5-88cd-134d702cad3a`)
 - `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` (Web reCAPTCHA Enterprise site key linked to Firebase App Check for the Web App)
 - `VOCOFLO_AI_GATEWAY_URL` (`https://vocofloaigateway-i2vkb7nxrq-uc.a.run.app`)
+- `NEXT_PUBLIC_ENABLE_GUEST_REVIEW_MODE` (`true` by default; set to `false` to disable **Explore as Guest**)
 
 Never set `NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN` in Vercel staging/production builds.
 

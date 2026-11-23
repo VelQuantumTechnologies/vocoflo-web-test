@@ -288,7 +288,11 @@ export function AcousticMirrorPanel({
                             </span>
                           ) : null}
                           <span className="rounded-full border border-emeraldStrongBorder px-2 py-0.5 text-[10px] uppercase tracking-wide text-mutedSage">
-                            {ev.sourceKind === "user_reported" ? "User added" : ev.reviewState}
+                            {ev.sourceKind === "user_reported"
+                              ? "User added"
+                              : ev.sourceKind === "development_fixture"
+                                ? `Simulated (Guest) • ${ev.reviewState}`
+                                : ev.reviewState}
                           </span>
                         </div>
 

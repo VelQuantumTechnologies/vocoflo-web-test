@@ -12,6 +12,7 @@ import {
 import {
   ArrowRight,
   ClipboardList,
+  Compass,
   LogIn,
   LogOut,
   MessageCircleQuestion,
@@ -26,6 +27,8 @@ import {
   sanitizeCocoOutput,
 } from "@/lib/ai/coco-prompts";
 import { callTrustedAiGateway } from "@/lib/ai/gateway-client";
+import { GUEST_REVIEW_USER_ID, isGuestReviewModeEnabled } from "@/lib/guest/config";
+import { createGuestProfile } from "@/lib/guest/simulator";
 import { blobToBase64, MAX_WEB_AUDIO_UPLOAD_BYTES } from "@/lib/audio/recorder";
 import { useCoachVoice } from "@/lib/audio/useCoachVoice";
 import { useMicRecorder } from "@/lib/audio/useMicRecorder";
@@ -93,10 +96,20 @@ const ONBOARDING_STEPS = [
 ];
 
 export function VocoFloHarness() {
+  const guestModeAvailable = useMemo(() => isGuestReviewModeEnabled(), []);
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const isGuestModeRef = useRef(false);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+
+  const activeUid = authUser?.uid || (isGuestMode ? GUEST_REVIEW_USER_ID : null);
+  const isSessionActive = Boolean(authUser) || isGuestMode;
+
+  useEffect(() => {
+    isGuestModeRef.current = isGuestMode;
+  }, [isGuestMode]);
 
   const [profile, setProfile] = useState<LearnerProfile | null>(null);
   const [memories, setMemories] = useState<CoachMemoryItem[]>([]);
@@ -161,7 +174,8 @@ export function VocoFloHarness() {
         });
       },
       [appendEvidence]
-    )
+    ),
+    isGuestMode
   );
 
   const mic = useMicRecorder(
@@ -187,6 +201,30 @@ export function VocoFloHarness() {
     };
   }, []);
 
+  const resetSessionData = useCallback(() => {
+    voice.pauseOrStop();
+    mic.reset();
+    clipUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    clipUrlsRef.current = [];
+    setLocalClips({});
+    setProfile(null);
+    setMemories([]);
+    setAttempts([]);
+    setEvents([]);
+    setP01Progress(null);
+    setServerTier("free_preview");
+    setMonthlyLiveCalls(0);
+    setQaExchanges([]);
+    setQaError(null);
+    setEvidenceEntries([]);
+    setConsentAuthorized(false);
+    setView("hub");
+    setIntroPage(0);
+    setScopeLabel("Hub & Orientation");
+    setCompletedStepTitles([]);
+    setUnreachedStepTitles(["Free Check-In", "P01 Lesson"]);
+  }, [mic, voice]);
+
   // Initialize Firebase Auth & Web App Check listener
   useEffect(() => {
     ensureWebAppCheck();
@@ -201,15 +239,22 @@ export function VocoFloHarness() {
       setAuthReady(true);
 
       if (!user) {
-        setProfile(null);
-        setMemories([]);
-        setAttempts([]);
-        setEvents([]);
-        setP01Progress(null);
-        setServerTier("free_preview");
-        setMonthlyLiveCalls(0);
-        setConsentAuthorized(false);
+        if (!isGuestModeRef.current) {
+          setProfile(null);
+          setMemories([]);
+          setAttempts([]);
+          setEvents([]);
+          setP01Progress(null);
+          setServerTier("free_preview");
+          setMonthlyLiveCalls(0);
+          setConsentAuthorized(false);
+        }
         return;
+      }
+
+      if (isGuestModeRef.current) {
+        setIsGuestMode(false);
+        isGuestModeRef.current = false;
       }
 
       const savedConsent = window.localStorage.getItem(`vocoflo_web_mic_consent_${user.uid}`);
@@ -252,7 +297,33 @@ export function VocoFloHarness() {
     return () => unsub();
   }, [appendEvidence]);
 
+  const handleEnterGuestMode = () => {
+    if (!guestModeAvailable || authUser) return;
+    setAuthError(null);
+    resetSessionData();
+    isGuestModeRef.current = true;
+    setIsGuestMode(true);
+    setProfile(createGuestProfile());
+    const savedGuestConsent = window.localStorage.getItem("vocoflo_web_guest_mic_consent");
+    setConsentAuthorized(savedGuestConsent === "granted");
+    appendEvidence({
+      kind: "ui_event",
+      stage: "Guest Review Mode",
+      summary:
+        "Entered temporary Guest Review Mode (simulated Coco & speech observations; zero Firestore writes or real AI gateway calls).",
+    });
+  };
+
+  const handleExitGuestMode = () => {
+    resetSessionData();
+    isGuestModeRef.current = false;
+    setIsGuestMode(false);
+  };
+
   const handleSignIn = async () => {
+    if (isGuestMode) {
+      handleExitGuestMode();
+    }
     const auth = getFirebaseClientAuth();
     if (!auth) {
       setAuthError("Firebase Web configuration is incomplete.");
@@ -293,6 +364,10 @@ export function VocoFloHarness() {
         }));
       }
 
+      if (isGuestMode || !authUser) {
+        return;
+      }
+
       try {
         await persistSpeechAttempt(attempt);
       } catch (err) {
@@ -304,7 +379,7 @@ export function VocoFloHarness() {
         });
       }
     },
-    [appendEvidence]
+    [appendEvidence, authUser, isGuestMode]
   );
 
   const handleRunSpeechAnalysis = useCallback(
@@ -330,11 +405,12 @@ export function VocoFloHarness() {
         };
       }
 
-      const base64 = await blobToBase64(blob);
+      const base64 = isGuestMode ? "" : await blobToBase64(blob);
       const res = await callTrustedAiGateway({
         action: "speech_analysis",
         purpose,
         attemptOrSessionId: attempt.id,
+        guestMode: isGuestMode,
         payload: {
           audioBase64: base64,
           mimeType,
@@ -360,17 +436,19 @@ export function VocoFloHarness() {
             a.id === attempt.id ? { ...a, analysisStatus: "failed", analysisError: errMsg } : a
           )
         );
-        await updateSpeechAttemptFields(attempt.userId, attempt.id, {
-          analysisStatus: "failed",
-          analysisError: errMsg,
-        }).catch((err) => {
-          appendEvidence({
-            kind: "error",
-            stage: "Firestore Attempt Update",
-            summary: "Could not save failed speech analysis status",
-            errorMessage: err instanceof Error ? err.message : "Unknown error",
+        if (!isGuestMode && authUser) {
+          await updateSpeechAttemptFields(attempt.userId, attempt.id, {
+            analysisStatus: "failed",
+            analysisError: errMsg,
+          }).catch((err) => {
+            appendEvidence({
+              kind: "error",
+              stage: "Firestore Attempt Update",
+              summary: "Could not save failed speech analysis status",
+              errorMessage: err instanceof Error ? err.message : "Unknown error",
+            });
           });
-        });
+        }
         return {
           ok: false,
           transcript: null,
@@ -391,7 +469,7 @@ export function VocoFloHarness() {
           eventType: ev.eventType,
           wordOrSound: ev.wordOrSound,
           tentativeObservation: ev.tentativeObservation,
-          sourceKind: "ai_observed",
+          sourceKind: isGuestMode ? "development_fixture" : "ai_observed",
           reviewState: "unreviewed",
         }));
 
@@ -406,12 +484,13 @@ export function VocoFloHarness() {
           ...eventsToInsert,
         ]);
 
+        const nextStatus = isGuestMode ? "fixture" : "success";
         setAttempts((prev) =>
           prev.map((a) =>
             a.id === attempt.id
               ? {
                   ...a,
-                  analysisStatus: "success",
+                  analysisStatus: nextStatus,
                   analysisModel: res.model,
                   disfluentTranscript: parsed.disfluentTranscript,
                   summaryObservation: parsed.summaryObservation,
@@ -421,33 +500,35 @@ export function VocoFloHarness() {
           )
         );
 
-        await updateSpeechAttemptFields(attempt.userId, attempt.id, {
-          analysisStatus: "success",
-          analysisModel: res.model,
-          disfluentTranscript: parsed.disfluentTranscript || null,
-          summaryObservation: parsed.summaryObservation,
-          analysisError: null,
-        }).catch((err) => {
-          appendEvidence({
-            kind: "error",
-            stage: "Firestore Attempt Update",
-            summary: "Could not update speech attempt analysis in Firestore",
-            errorMessage: err instanceof Error ? err.message : "Unknown error",
+        if (!isGuestMode && authUser) {
+          await updateSpeechAttemptFields(attempt.userId, attempt.id, {
+            analysisStatus: "success",
+            analysisModel: res.model,
+            disfluentTranscript: parsed.disfluentTranscript || null,
+            summaryObservation: parsed.summaryObservation,
+            analysisError: null,
+          }).catch((err) => {
+            appendEvidence({
+              kind: "error",
+              stage: "Firestore Attempt Update",
+              summary: "Could not update speech attempt analysis in Firestore",
+              errorMessage: err instanceof Error ? err.message : "Unknown error",
+            });
           });
-        });
 
-        await replaceSpeechEventsForAttempt(
-          attempt.userId,
-          eventIdsToDelete,
-          eventsToInsert
-        ).catch((err) => {
-          appendEvidence({
-            kind: "error",
-            stage: "Firestore Speech Events",
-            summary: "Could not persist speech events in Firestore",
-            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          await replaceSpeechEventsForAttempt(
+            attempt.userId,
+            eventIdsToDelete,
+            eventsToInsert
+          ).catch((err) => {
+            appendEvidence({
+              kind: "error",
+              stage: "Firestore Speech Events",
+              summary: "Could not persist speech events in Firestore",
+              errorMessage: err instanceof Error ? err.message : "Unknown error",
+            });
           });
-        });
+        }
 
         return {
           ok: true,
@@ -472,7 +553,7 @@ export function VocoFloHarness() {
         };
       }
     },
-    [appendEvidence, events]
+    [appendEvidence, authUser, events, isGuestMode]
   );
 
   const handleUpdateEventReview = useCallback(
@@ -496,7 +577,7 @@ export function VocoFloHarness() {
             : ev
         )
       );
-      if (authUser) {
+      if (!isGuestMode && authUser) {
         updateSpeechEventReviewInFirestore(
           authUser.uid,
           eventId,
@@ -519,15 +600,15 @@ export function VocoFloHarness() {
         summary: `Learner marked moment ${eventId.slice(0, 10)} as ${reviewState}`,
       });
     },
-    [appendEvidence, authUser]
+    [appendEvidence, authUser, isGuestMode]
   );
 
   const handleAddUserMoment = useCallback(
     (attemptId: string, startSeconds: number, wordOrSound: string, note: string) => {
-      if (!authUser) return;
+      if (!activeUid) return;
       const newEvt: SpeechEvent = {
         id: `sev_user_${crypto.randomUUID().slice(0, 8)}`,
-        userId: authUser.uid,
+        userId: activeUid,
         attemptId,
         startSeconds,
         endSeconds: Number((startSeconds + 0.5).toFixed(2)),
@@ -538,21 +619,23 @@ export function VocoFloHarness() {
         reviewState: "confirmed",
       };
       setEvents((prev) => [...prev, newEvt]);
-      persistSpeechEvent(newEvt).catch((err) => {
-        appendEvidence({
-          kind: "error",
-          stage: "Firestore Speech Event",
-          summary: "Could not persist user-reported speech moment",
-          errorMessage: err instanceof Error ? err.message : "Unknown error",
+      if (!isGuestMode && authUser) {
+        persistSpeechEvent(newEvt).catch((err) => {
+          appendEvidence({
+            kind: "error",
+            stage: "Firestore Speech Event",
+            summary: "Could not persist user-reported speech moment",
+            errorMessage: err instanceof Error ? err.message : "Unknown error",
+          });
         });
-      });
+      }
       appendEvidence({
         kind: "ui_event",
         stage: "Acoustic Mirror",
         summary: `Learner added user-reported moment at ${startSeconds.toFixed(1)}s`,
       });
     },
-    [appendEvidence, authUser]
+    [activeUid, appendEvidence, authUser, isGuestMode]
   );
 
   const journeyScope: JourneyScope = useMemo(
@@ -591,6 +674,7 @@ export function VocoFloHarness() {
         purpose: "coco_qa",
         attemptOrSessionId: `qa_${view}`,
         payload: { prompt },
+        guestMode: isGuestMode,
       });
       if (!res.ok) {
         setQaError(res.errorMessage || "Ask Coco could not reply right now.");
@@ -626,10 +710,22 @@ export function VocoFloHarness() {
     <div className="min-h-screen bg-emeraldCanvas text-creamInk">
       {/* Staging & Fidelity Top Notice */}
       <div className="border-b border-emeraldBorder bg-deskGreen px-4 py-2 text-center text-[11px] text-softMintInk/90">
-        <span className="font-semibold text-mintAccent">Private Staging Test Harness</span> •
-        Separate Next.js web evaluation environment (`vocoflo-web-test`). Android app &amp;
-        `www.vocoflo.com` remain untouched. Browser audio fidelity has not yet been compared to
-        Android.
+        {isGuestMode ? (
+          <>
+            <span className="font-semibold text-warmGold">
+              Temporary Guest Review Mode Active
+            </span>{" "}
+            • Simulated Coco responses &amp; speech observations • Zero Firestore writes, zero
+            real AI gateway calls, and zero access to existing learner accounts.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-mintAccent">Private Staging Test Harness</span> •
+            Separate Next.js web evaluation environment (`vocoflo-web-test`). Android app &amp;
+            `www.vocoflo.com` remain untouched. Browser audio fidelity has not yet been compared to
+            Android.
+          </>
+        )}
       </div>
 
       {/* Header */}
@@ -648,7 +744,7 @@ export function VocoFloHarness() {
             <VocoFloWordmark />
           </button>
 
-          {authUser ? (
+          {isSessionActive ? (
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -678,23 +774,44 @@ export function VocoFloHarness() {
                 Controls
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const auth = getFirebaseClientAuth();
-                  if (auth) signOut(auth);
-                }}
-                className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-emeraldBorder px-3 py-1.5 text-xs text-mutedSage hover:text-softCoral"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Sign Out
-              </button>
+              {isGuestMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleSignIn}
+                    className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-mintAccent/60 px-3 py-1.5 text-xs font-medium text-mintAccent hover:bg-emeraldField"
+                  >
+                    <LogIn className="h-3.5 w-3.5" />
+                    Sign In (Real AI)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExitGuestMode}
+                    className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-emeraldBorder px-3 py-1.5 text-xs text-mutedSage hover:text-softCoral"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    Exit Guest
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const auth = getFirebaseClientAuth();
+                    if (auth) signOut(auth);
+                  }}
+                  className="inline-flex min-h-[38px] items-center gap-1 rounded-full border border-emeraldBorder px-3 py-1.5 text-xs text-mutedSage hover:text-softCoral"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign Out
+                </button>
+              )}
             </div>
           ) : null}
         </div>
 
         {/* Collapsible Voice / Speed / Consent Settings Bar */}
-        {showSettings && authUser ? (
+        {showSettings && isSessionActive ? (
           <div className="border-t border-emeraldBorder bg-emeraldSurface px-4 py-3">
             <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 text-xs">
               <div className="flex flex-wrap items-center gap-3">
@@ -760,7 +877,7 @@ export function VocoFloHarness() {
 
       <main className="mx-auto max-w-4xl px-4 py-8">
         {/* Diagnostic Warning if Web App Check / Firebase isn't ready */}
-        {!firebaseStatus.appCheckConfigured ? (
+        {!firebaseStatus.appCheckConfigured && !isGuestMode ? (
           <div className="mb-6 rounded-2xl border border-warmGold/60 bg-emeraldSurface p-4 text-xs text-warmGold">
             <div className="flex items-start gap-2.5">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -788,7 +905,7 @@ export function VocoFloHarness() {
           <div className="rounded-2xl border border-emeraldBorder bg-emeraldSurface p-8 text-center text-sm text-mutedSage">
             Checking test session…
           </div>
-        ) : !authUser ? (
+        ) : !isSessionActive ? (
           /* WELCOME & SIGN-IN SCREEN */
           <div className="grid gap-6 md:grid-cols-5">
             <div className="space-y-5 rounded-3xl border border-emeraldStrongBorder bg-emeraldSurface p-6 md:col-span-3">
@@ -805,21 +922,36 @@ export function VocoFloHarness() {
               </p>
 
               <div className="rounded-2xl border border-warmGold/40 bg-emeraldCanvas p-4 text-xs text-softMintInk">
-                <p className="font-semibold text-warmGold">Use an Isolated Test Account</p>
+                <p className="font-semibold text-warmGold">Two Safe Ways to Review</p>
                 <p className="mt-1 text-mutedSage">
-                  Sign in with a dedicated test Google account so you do not overwrite your personal
-                  Android Check-In history or memories.
+                  Sign in with a dedicated test Google account for live Coco AI &amp; isolated
+                  Firestore storage, or choose <strong>Explore as Guest</strong> to walk through
+                  every screen with clearly labeled simulated responses (no sign-in, no real AI
+                  calls, and no database writes).
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSignIn}
-                className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-3 text-sm font-semibold text-sageInk transition hover:opacity-90"
-              >
-                <LogIn className="h-4 w-4" />
-                Sign In With Test Google Account
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSignIn}
+                  className="inline-flex min-h-[48px] items-center gap-2 rounded-full bg-sagePill px-6 py-3 text-sm font-semibold text-sageInk transition hover:opacity-90"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Sign In With Test Google Account
+                </button>
+
+                {guestModeAvailable ? (
+                  <button
+                    type="button"
+                    onClick={handleEnterGuestMode}
+                    className="inline-flex min-h-[48px] items-center gap-2 rounded-full border border-mintAccent/70 bg-emeraldField px-6 py-3 text-sm font-semibold text-mintAccent transition hover:bg-emeraldRaised"
+                  >
+                    <Compass className="h-4 w-4" />
+                    Explore as Guest
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex flex-col justify-between gap-4 rounded-3xl border border-emeraldBorder bg-emeraldSurface p-5 md:col-span-2">
@@ -842,6 +974,12 @@ export function VocoFloHarness() {
                   Web App Check Mode:{" "}
                   <span className="font-mono text-creamInk">{firebaseStatus.appCheckMode}</span>
                 </p>
+                <p>
+                  Guest Review Mode:{" "}
+                  <span className={guestModeAvailable ? "text-warmGold" : "text-mutedSage"}>
+                    {guestModeAvailable ? "Enabled (Simulated)" : "Disabled"}
+                  </span>
+                </p>
               </div>
             </div>
           </div>
@@ -850,17 +988,32 @@ export function VocoFloHarness() {
             Loading isolated Firestore learner profile…
           </div>
         ) : view === "hub" ? (
-          /* SIGNED-IN HUB WITH 3-STEP PAGED INTRO + FLOW SELECTION */
+          /* SIGNED-IN OR GUEST HUB WITH 3-STEP PAGED INTRO + FLOW SELECTION */
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emeraldBorder bg-emeraldSurface p-5">
               <div>
                 <p className="text-xs text-mutedSage">
-                  Signed in as <strong className="text-creamInk">{authUser.email}</strong>
+                  {isGuestMode ? (
+                    <>
+                      Session:{" "}
+                      <strong className="text-warmGold">
+                        Guest Review Mode (Simulated • Local Browser Only)
+                      </strong>
+                    </>
+                  ) : (
+                    <>
+                      Signed in as <strong className="text-creamInk">{authUser?.email}</strong>
+                    </>
+                  )}
                 </p>
                 <p className="mt-1 text-xs text-mintAccent">
-                  Tier: {serverTier} (Monthly live AI: {monthlyLiveCalls}) • Check-In:{" "}
-                  {profile?.completedCheckIn ? "Completed" : "Not yet completed"} • Memories:{" "}
-                  {memories.length} • Attempts: {attempts.length}
+                  {isGuestMode
+                    ? `Simulated Responses • No Firestore Writes • Check-In: ${
+                        profile?.completedCheckIn ? "Completed" : "Not yet completed"
+                      } • Memories: ${memories.length} • Attempts: ${attempts.length}`
+                    : `Tier: ${serverTier} (Monthly live AI: ${monthlyLiveCalls}) • Check-In: ${
+                        profile?.completedCheckIn ? "Completed" : "Not yet completed"
+                      } • Memories: ${memories.length} • Attempts: ${attempts.length}`}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -958,7 +1111,8 @@ export function VocoFloHarness() {
           </div>
         ) : view === "check_in" ? (
           <CheckInView
-            uid={authUser.uid}
+            uid={activeUid || GUEST_REVIEW_USER_ID}
+            isGuestMode={isGuestMode}
             speechTermMode={speechTermMode}
             onChangeSpeechTermMode={setSpeechTermMode}
             initialGoals={profile?.chosenGoals || []}
@@ -980,10 +1134,13 @@ export function VocoFloHarness() {
             onStopMic={() => mic.stop()}
             onResetMic={() => mic.reset()}
             onSaveContext={async (goals, situations) => {
-              await updateLearnerProfileFields(authUser.uid, {
-                chosenGoals: goals,
-                importantSituations: situations,
-              });
+              const uidForState = activeUid || GUEST_REVIEW_USER_ID;
+              if (!isGuestMode && authUser) {
+                await updateLearnerProfileFields(authUser.uid, {
+                  chosenGoals: goals,
+                  importantSituations: situations,
+                });
+              }
               setProfile((p) =>
                 p ? { ...p, chosenGoals: goals, importantSituations: situations } : p
               );
@@ -993,45 +1150,51 @@ export function VocoFloHarness() {
               if (situations.length > 0) {
                 const m: CoachMemoryItem = {
                   id: "mem_checkin_situations",
-                  userId: authUser.uid,
+                  userId: uidForState,
                   category: "context",
                   fact: `Important speaking situations: ${situations.join(", ")}`,
                   sourceKind: "user_report",
                   sourceReference: "web_check_in_context",
                 };
                 newMemories.push(m);
-                ops.push(persistCoachMemory(m));
-              } else {
+                if (!isGuestMode && authUser) {
+                  ops.push(persistCoachMemory(m));
+                }
+              } else if (!isGuestMode && authUser) {
                 ops.push(deleteCoachMemory(authUser.uid, "mem_checkin_situations"));
               }
 
               if (goals.length > 0) {
                 const m: CoachMemoryItem = {
                   id: "mem_checkin_goals",
-                  userId: authUser.uid,
+                  userId: uidForState,
                   category: "goal",
                   fact: `Goal: ${goals.join(", ")}`,
                   sourceKind: "user_report",
                   sourceReference: "web_check_in_context",
                 };
                 newMemories.push(m);
-                ops.push(persistCoachMemory(m));
-              } else {
+                if (!isGuestMode && authUser) {
+                  ops.push(persistCoachMemory(m));
+                }
+              } else if (!isGuestMode && authUser) {
                 ops.push(deleteCoachMemory(authUser.uid, "mem_checkin_goals"));
               }
 
-              await Promise.all(
-                ops.map((p) =>
-                  p.catch((err) => {
-                    appendEvidence({
-                      kind: "error",
-                      stage: "Firestore Memories",
-                      summary: "Could not sync Check-In context memory",
-                      errorMessage: err instanceof Error ? err.message : "Unknown error",
-                    });
-                  })
-                )
-              );
+              if (ops.length > 0) {
+                await Promise.all(
+                  ops.map((p) =>
+                    p.catch((err) => {
+                      appendEvidence({
+                        kind: "error",
+                        stage: "Firestore Memories",
+                        summary: "Could not sync Check-In context memory",
+                        errorMessage: err instanceof Error ? err.message : "Unknown error",
+                      });
+                    })
+                  )
+                );
+              }
 
               setMemories((prev) => {
                 const filtered = prev.filter(
@@ -1045,30 +1208,36 @@ export function VocoFloHarness() {
               setAttempts((prev) =>
                 prev.map((a) => (a.id === attId ? { ...a, selfReportEffort: effort } : a))
               );
-              await updateSpeechAttemptFields(authUser.uid, attId, {
-                selfReportEffort: effort,
-              }).catch((err) => {
-                appendEvidence({
-                  kind: "error",
-                  stage: "Firestore Attempt Effort",
-                  summary: "Could not update self-reported effort",
-                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+              if (!isGuestMode && authUser) {
+                await updateSpeechAttemptFields(authUser.uid, attId, {
+                  selfReportEffort: effort,
+                }).catch((err) => {
+                  appendEvidence({
+                    kind: "error",
+                    stage: "Firestore Attempt Effort",
+                    summary: "Could not update self-reported effort",
+                    errorMessage: err instanceof Error ? err.message : "Unknown error",
+                  });
                 });
-              });
+              }
             }}
             onRunSpeechAnalysis={handleRunSpeechAnalysis}
             onUpdateEventReview={handleUpdateEventReview}
             onAddUserMoment={handleAddUserMoment}
             onCompleteCheckIn={async (debrief) => {
-              await updateLearnerProfileFields(authUser.uid, {
-                completedCheckIn: true,
-                onboardingSeen: true,
-              });
+              if (!isGuestMode && authUser) {
+                await updateLearnerProfileFields(authUser.uid, {
+                  completedCheckIn: true,
+                  onboardingSeen: true,
+                });
+              }
               setProfile((p) => (p ? { ...p, completedCheckIn: true } : p));
               appendEvidence({
                 kind: "ui_event",
                 stage: "Free Check-In",
-                summary: `Check-In marked complete (debrief ${debrief.length} chars)`,
+                summary: `${
+                  isGuestMode ? "[Guest] " : ""
+                }Check-In marked complete (debrief ${debrief.length} chars)`,
               });
             }}
             onLogEvidence={appendEvidence}
@@ -1087,7 +1256,8 @@ export function VocoFloHarness() {
           />
         ) : (
           <P01View
-            uid={authUser.uid}
+            uid={activeUid || GUEST_REVIEW_USER_ID}
+            isGuestMode={isGuestMode}
             profile={profile}
             initialProgress={p01Progress}
             memories={memories}
@@ -1120,8 +1290,9 @@ export function VocoFloHarness() {
               reviewChoice,
               understandingChoiceId
             ) => {
+              const uidForState = activeUid || GUEST_REVIEW_USER_ID;
               const nextProg: LessonProgress = {
-                userId: authUser.uid,
+                userId: uidForState,
                 toolId: "P01",
                 currentStepIndex: beatIdx,
                 completedSteps: comp,
@@ -1131,49 +1302,55 @@ export function VocoFloHarness() {
                 sessionCompleted: completed,
               };
               setP01Progress(nextProg);
-              await persistP01Progress(
-                authUser.uid,
-                beatIdx,
-                comp,
-                skip,
-                completed,
-                reviewChoice,
-                understandingChoiceId
-              ).catch((err) => {
-                appendEvidence({
-                  kind: "error",
-                  stage: "Firestore P01 Progress",
-                  summary: "Could not save P01 progress",
-                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+              if (!isGuestMode && authUser) {
+                await persistP01Progress(
+                  authUser.uid,
+                  beatIdx,
+                  comp,
+                  skip,
+                  completed,
+                  reviewChoice,
+                  understandingChoiceId
+                ).catch((err) => {
+                  appendEvidence({
+                    kind: "error",
+                    stage: "Firestore P01 Progress",
+                    summary: "Could not save P01 progress",
+                    errorMessage: err instanceof Error ? err.message : "Unknown error",
+                  });
                 });
-              });
+              }
             }}
             onSaveTransferPlanAndMemory={async (plan, saveMem) => {
-              await persistTransferPlan(plan).catch((err) => {
-                appendEvidence({
-                  kind: "error",
-                  stage: "Firestore Transfer Plan",
-                  summary: "Could not save transfer plan",
-                  errorMessage: err instanceof Error ? err.message : "Unknown error",
+              if (!isGuestMode && authUser) {
+                await persistTransferPlan(plan).catch((err) => {
+                  appendEvidence({
+                    kind: "error",
+                    stage: "Firestore Transfer Plan",
+                    summary: "Could not save transfer plan",
+                    errorMessage: err instanceof Error ? err.message : "Unknown error",
+                  });
                 });
-              });
+              }
               if (saveMem) {
                 const mem: CoachMemoryItem = {
                   id: `mem_p01_transfer_${crypto.randomUUID().slice(0, 6)}`,
-                  userId: authUser.uid,
+                  userId: activeUid || GUEST_REVIEW_USER_ID,
                   category: "transfer_plan",
                   fact: `${plan.situation}: ${plan.smallAction}`,
                   sourceKind: "user_confirmed",
                   sourceReference: "P01_beat_5",
                 };
-                await persistCoachMemory(mem).catch((err) => {
-                  appendEvidence({
-                    kind: "error",
-                    stage: "Firestore Memories",
-                    summary: "Could not save transfer memory",
-                    errorMessage: err instanceof Error ? err.message : "Unknown error",
+                if (!isGuestMode && authUser) {
+                  await persistCoachMemory(mem).catch((err) => {
+                    appendEvidence({
+                      kind: "error",
+                      stage: "Firestore Memories",
+                      summary: "Could not save transfer memory",
+                      errorMessage: err instanceof Error ? err.message : "Unknown error",
+                    });
                   });
-                });
+                }
                 setMemories((prev) => [mem, ...prev]);
               }
             }}
@@ -1191,12 +1368,15 @@ export function VocoFloHarness() {
       <ConsentDialog
         open={consentModalOpen}
         alreadyAuthorized={consentAuthorized}
+        isGuestMode={isGuestMode}
         onClose={() => {
           pendingMicStartRef.current = null;
           setConsentModalOpen(false);
         }}
         onAuthorizeAndProceed={() => {
-          if (authUser) {
+          if (isGuestMode) {
+            window.localStorage.setItem("vocoflo_web_guest_mic_consent", "granted");
+          } else if (authUser) {
             window.localStorage.setItem(`vocoflo_web_mic_consent_${authUser.uid}`, "granted");
           }
           setConsentAuthorized(true);
@@ -1204,7 +1384,9 @@ export function VocoFloHarness() {
           appendEvidence({
             kind: "ui_event",
             stage: "Mic Consent",
-            summary: "Learner granted explicit mic capture and speech-detection disclosure.",
+            summary: isGuestMode
+              ? "Guest granted local mic capture disclosure (no cloud/AI upload)."
+              : "Learner granted explicit mic capture and speech-detection disclosure.",
           });
           const pending = pendingMicStartRef.current;
           pendingMicStartRef.current = null;
@@ -1214,7 +1396,9 @@ export function VocoFloHarness() {
           }
         }}
         onRevoke={() => {
-          if (authUser) {
+          if (isGuestMode) {
+            window.localStorage.removeItem("vocoflo_web_guest_mic_consent");
+          } else if (authUser) {
             window.localStorage.removeItem(`vocoflo_web_mic_consent_${authUser.uid}`);
           }
           setConsentAuthorized(false);
@@ -1234,12 +1418,13 @@ export function VocoFloHarness() {
         voiceState={voice.state}
         onPlayAudio={(txt, role) => voice.speak(txt, role)}
         onPauseAudio={() => voice.pauseOrStop()}
+        isGuestMode={isGuestMode}
       />
 
       <EvidenceExportModal
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
-        uid={authUser?.uid || null}
+        uid={isGuestMode ? "guest_review_mode" : authUser?.uid || null}
         entries={evidenceEntries}
         attempts={attempts}
         speechEvents={events}

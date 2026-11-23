@@ -17,6 +17,7 @@ interface MicSpeakingPanelProps {
   submitLabel?: string;
   allowSkipAnalysis?: boolean;
   busy?: boolean;
+  isGuestMode?: boolean;
 }
 
 function formatSeconds(sec: number): string {
@@ -38,6 +39,7 @@ export function MicSpeakingPanel({
   submitLabel = "Submit Recording",
   allowSkipAnalysis = true,
   busy = false,
+  isGuestMode = false,
 }: MicSpeakingPanelProps) {
   const [showTyped, setShowTyped] = useState(false);
   const [typedDraft, setTypedDraft] = useState("");
@@ -123,7 +125,9 @@ export function MicSpeakingPanel({
               onChange={(e) => setRunAnalysis(e.target.checked)}
               className="h-4 w-4 accent-mintAccent"
             />
-            Run optional speech observation & verbatim transcript (speech detection model)
+            {isGuestMode
+              ? "Run optional simulated speech observation & transcript (Guest Mode — local only)"
+              : "Run optional speech observation & verbatim transcript (speech detection model)"}
           </label>
         ) : null}
 

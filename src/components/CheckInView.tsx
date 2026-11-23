@@ -35,6 +35,7 @@ import { ParkCafeSceneCard } from "./VocoFloBranding";
 
 interface CheckInViewProps {
   uid: string;
+  isGuestMode?: boolean;
   speechTermMode: SpeechTermMode;
   onChangeSpeechTermMode: (mode: SpeechTermMode) => void;
   initialGoals: string[];
@@ -103,6 +104,7 @@ const GOAL_OPTIONS = [
 
 export function CheckInView({
   uid,
+  isGuestMode = false,
   speechTermMode,
   onChangeSpeechTermMode,
   initialGoals,
@@ -269,6 +271,7 @@ export function CheckInView({
         purpose: "coaching_debrief",
         attemptOrSessionId: attemptId,
         payload,
+        guestMode: isGuestMode,
       });
 
       if (!res.ok) {
@@ -368,6 +371,7 @@ export function CheckInView({
         purpose: "responsive_roleplay",
         attemptOrSessionId: attemptId,
         payload,
+        guestMode: isGuestMode,
       });
 
       if (!res.ok) {
@@ -478,6 +482,7 @@ export function CheckInView({
         purpose: "coaching_debrief",
         attemptOrSessionId: "check_in_debrief",
         payload: { prompt },
+        guestMode: isGuestMode,
       });
 
       if (!res.ok) {
@@ -801,6 +806,7 @@ export function CheckInView({
                 onStopRecording={onStopMic}
                 onResetRecording={onResetMic}
                 busy={busy}
+                isGuestMode={isGuestMode}
                 submitLabel="Submit Sample to Coco"
                 onSubmitAudio={(blob, dur, mime, runAna) =>
                   handleSampleSubmission(blob, dur, mime, runAna, null)
@@ -813,7 +819,7 @@ export function CheckInView({
               {sampleCocoReplies[sampleIndex] ? (
                 <CocoAudioPanel
                   title="Coco's Reply"
-                  badge="Live Sulafat"
+                  badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
                   text={sampleCocoReplies[sampleIndex]}
                   voiceState={voiceState}
                   onPlay={onPlayAudio}
@@ -928,6 +934,9 @@ export function CheckInView({
                           <CocoAudioPanel
                             key={i}
                             title="Colleague (Orus)"
+                            badge={
+                              isGuestMode && i > 0 ? "Simulated Partner (Guest Mode)" : undefined
+                            }
                             role="ROLEPLAY_PARTNER"
                             text={t.message}
                             voiceState={voiceState}
@@ -959,6 +968,7 @@ export function CheckInView({
                       onStopRecording={onStopMic}
                       onResetRecording={onResetMic}
                       busy={busy}
+                      isGuestMode={isGuestMode}
                       submitLabel="Send Reply to Colleague"
                       onSubmitAudio={(blob, dur, mime, runAna) =>
                         handleConversationTurn(blob, dur, mime, runAna, null)
@@ -1024,6 +1034,7 @@ export function CheckInView({
             onStopRecording={onStopMic}
             onResetRecording={onResetMic}
             busy={busy}
+            isGuestMode={isGuestMode}
             submitLabel="Save Experiment Clip"
             onSubmitAudio={(blob, dur, mime, runAna) =>
               handleShiftSubmission(blob, dur, mime, runAna, null)
@@ -1101,7 +1112,7 @@ export function CheckInView({
           {debriefText ? (
             <CocoAudioPanel
               title="Coco's Check-In Debrief"
-              badge="Live Sulafat"
+              badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
               text={debriefText}
               voiceState={voiceState}
               onPlay={onPlayAudio}
@@ -1119,7 +1130,9 @@ export function CheckInView({
                 <p className="text-mutedSage">
                   {debriefSpeakingNow
                     ? "The Begin P01 button unlocks automatically when Coco finishes speaking the debrief (or press Pause above to read at your own pace)."
-                    : "Check-In saved to your isolated test profile. Ready for P01 whenever you choose."}
+                    : isGuestMode
+                      ? "Guest Check-In completed in local session memory (not written to Firestore). Ready for P01 whenever you choose."
+                      : "Check-In saved to your isolated test profile. Ready for P01 whenever you choose."}
                 </p>
               </div>
             </div>

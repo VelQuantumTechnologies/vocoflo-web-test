@@ -40,6 +40,7 @@ import { MicSpeakingPanel } from "./MicSpeakingPanel";
 
 interface P01ViewProps {
   uid: string;
+  isGuestMode?: boolean;
   profile: LearnerProfile | null;
   initialProgress?: LessonProgress | null;
   memories: CoachMemoryItem[];
@@ -110,6 +111,7 @@ const BEAT_META: Array<{ id: P01BeatId; label: string; title: string }> = [
 
 export function P01View({
   uid,
+  isGuestMode = false,
   profile,
   initialProgress,
   memories,
@@ -259,6 +261,7 @@ export function P01View({
         purpose: "coaching_debrief",
         attemptOrSessionId: "p01_beat_1_mirror",
         payload: { prompt },
+        guestMode: isGuestMode,
       });
       if (!res.ok) {
         setErrorBanner(res.errorMessage || "Coco could not reply to Beat 1.");
@@ -357,6 +360,7 @@ export function P01View({
         purpose: "coaching_debrief",
         attemptOrSessionId: attemptId,
         payload,
+        guestMode: isGuestMode,
       });
 
       if (!res.ok) {
@@ -410,6 +414,7 @@ export function P01View({
         purpose: "coaching_debrief",
         attemptOrSessionId: "p01_beat_3_label",
         payload: { prompt: buildP01LabelReflectionPrompt(clean, speechTermMode) },
+        guestMode: isGuestMode,
       });
       if (!res.ok) {
         setErrorBanner(res.errorMessage || "Could not reflect on label.");
@@ -446,6 +451,7 @@ export function P01View({
         payload: {
           prompt: buildP01FollowUpClosingPrompt(attempt2Reply, clean, speechTermMode),
         },
+        guestMode: isGuestMode,
       });
       if (!res.ok) {
         setErrorBanner(res.errorMessage || "Coco could not close the follow-up.");
@@ -585,7 +591,7 @@ export function P01View({
           {mirrorReply ? (
             <CocoAudioPanel
               title="Coco's Response"
-              badge="Live Sulafat"
+              badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
               text={mirrorReply}
               voiceState={voiceState}
               onPlay={onPlayAudio}
@@ -631,6 +637,7 @@ export function P01View({
             onStopRecording={onStopMic}
             onResetRecording={onResetMic}
             busy={busy}
+            isGuestMode={isGuestMode}
             submitLabel="Submit Attempt 1 to Coco"
             onSubmitAudio={(blob, dur, mime, runAna) =>
               handleP01AttemptSubmit(false, blob, dur, mime, runAna, null)
@@ -643,7 +650,7 @@ export function P01View({
           {attempt1Reply ? (
             <CocoAudioPanel
               title="Coco's Response (Attempt 1)"
-              badge="Live Sulafat"
+              badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
               text={attempt1Reply}
               voiceState={voiceState}
               onPlay={onPlayAudio}
@@ -830,7 +837,7 @@ export function P01View({
             {labelReflectionReply ? (
               <CocoAudioPanel
                 title="Coco on Your Label"
-                badge="Live Sulafat"
+                badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
                 text={labelReflectionReply}
                 voiceState={voiceState}
                 onPlay={onPlayAudio}
@@ -876,6 +883,7 @@ export function P01View({
             onStopRecording={onStopMic}
             onResetRecording={onResetMic}
             busy={busy}
+            isGuestMode={isGuestMode}
             submitLabel="Submit Attempt 2 to Coco"
             onSubmitAudio={(blob, dur, mime, runAna) =>
               handleP01AttemptSubmit(true, blob, dur, mime, runAna, null)
@@ -889,7 +897,7 @@ export function P01View({
             <div className="space-y-3">
               <CocoAudioPanel
                 title="Coco's Response & Follow-Up (Attempt 2)"
-                badge="Live Sulafat"
+                badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
                 text={attempt2Reply}
                 voiceState={voiceState}
                 onPlay={onPlayAudio}
@@ -916,7 +924,7 @@ export function P01View({
               ) : (
                 <CocoAudioPanel
                   title="Coco's Closing Thought"
-                  badge="Live Sulafat"
+                  badge={isGuestMode ? "Simulated (Guest Mode)" : "Live Sulafat"}
                   text={followUpClosing}
                   voiceState={voiceState}
                   onPlay={onPlayAudio}
@@ -1114,7 +1122,9 @@ export function P01View({
             {planChoiceMade ? (
               <p className="text-xs text-mintAccent">
                 {planChoiceMade === "saved"
-                  ? "Transfer plan approved and saved to your isolated Firestore test profile."
+                  ? isGuestMode
+                    ? "Transfer plan approved for this guest review session (local memory only; not written to Firestore)."
+                    : "Transfer plan approved and saved to your isolated Firestore test profile."
                   : "Respected — P01 marked complete without writing a transfer memory."}
               </p>
             ) : null}

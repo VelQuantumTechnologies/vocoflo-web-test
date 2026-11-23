@@ -28,7 +28,10 @@ export interface CoachVoiceState {
   liveTtsCalls: number;
 }
 
-export function useCoachVoice(onLog?: (msg: string, isError?: boolean) => void) {
+export function useCoachVoice(
+  onLog?: (msg: string, isError?: boolean) => void,
+  isGuestMode = false
+) {
   const [state, setState] = useState<CoachVoiceState>({
     synthesizing: false,
     speaking: false,
@@ -178,7 +181,43 @@ export function useCoachVoice(onLog?: (msg: string, isError?: boolean) => void) 
         return;
       }
 
-      // 3. Live TTS via /api/ai-gateway -> vocofloAiGateway
+      // 3. Guest Review Mode never invokes live TTS
+      if (isGuestMode) {
+        if (
+          state.allowBrowserFallback &&
+          typeof window !== "undefined" &&
+          "speechSynthesis" in window
+        ) {
+          const utter = new SpeechSynthesisUtterance(transcript);
+          utter.rate = role === "COCO" ? state.playbackRate : 1.0;
+          utter.pitch = role === "COCO" ? 1.0 : 0.9;
+          utter.onend = () =>
+            setState((p) => ({ ...p, speaking: false, synthesizing: false }));
+          window.speechSynthesis.speak(utter);
+          setState((p) => ({
+            ...p,
+            synthesizing: false,
+            speaking: true,
+            sourceLabel: "Guest Mode • Browser Speech",
+            unavailableMessage:
+              "Guest Review Mode: using browser speech fallback for dynamic simulated text.",
+          }));
+          return;
+        }
+
+        setState((prev) => ({
+          ...prev,
+          synthesizing: false,
+          speaking: false,
+          sourceLabel: "Guest Mode • Simulated Text",
+          unavailableMessage:
+            "Guest Review Mode: live Sulafat/Orus TTS is disabled (no unauthenticated AI calls). Pre-generated prompts play audio; readable simulated text is shown below.",
+        }));
+        onLog?.("Guest Review Mode: skipped live TTS call; displaying simulated text.");
+        return;
+      }
+
+      // 4. Live TTS via /api/ai-gateway -> vocofloAiGateway (authenticated only)
       setState((prev) => ({ ...prev, liveTtsCalls: prev.liveTtsCalls + 1 }));
       const res = await callTrustedAiGateway({
         action: "tts_synthesize",
@@ -234,7 +273,7 @@ export function useCoachVoice(onLog?: (msg: string, isError?: boolean) => void) 
         role === "COCO" ? "Coco Voice • Sulafat (Live)" : "Partner Voice • Orus (Live)";
       await playUrl(blobUrl, role, clean, state.playbackRate, label);
     },
-    [onLog, playUrl, state.allowBrowserFallback, state.playbackRate, stopAudioOnly]
+    [isGuestMode, onLog, playUrl, state.allowBrowserFallback, state.playbackRate, stopAudioOnly]
   );
 
   const pauseOrStop = useCallback(() => {

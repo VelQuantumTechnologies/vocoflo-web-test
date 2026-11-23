@@ -6,6 +6,7 @@ import { ShieldCheck, Mic, X } from "lucide-react";
 interface ConsentDialogProps {
   open: boolean;
   alreadyAuthorized: boolean;
+  isGuestMode?: boolean;
   onClose: () => void;
   onAuthorizeAndProceed: () => void;
   onRevoke?: () => void;
@@ -14,6 +15,7 @@ interface ConsentDialogProps {
 export function ConsentDialog({
   open,
   alreadyAuthorized,
+  isGuestMode = false,
   onClose,
   onAuthorizeAndProceed,
   onRevoke,
@@ -40,7 +42,11 @@ export function ConsentDialog({
               >
                 Microphone &amp; Speech Processing Notice
               </h2>
-              <p className="text-xs text-mutedSage">Explicit consent before audio capture</p>
+              <p className="text-xs text-mutedSage">
+                {isGuestMode
+                  ? "Guest Review Mode • Local browser audio only"
+                  : "Explicit consent before audio capture"}
+              </p>
             </div>
           </div>
           <button
@@ -64,13 +70,21 @@ export function ConsentDialog({
               stay in your browser session memory so you can replay them or download them
               manually if you choose. Raw audio files are not uploaded to cloud storage.
             </li>
-            <li>
-              <strong className="text-creamInk">Transient speech processing:</strong> When you
-              submit a recording, audio bytes are sent over encrypted HTTPS through VocoFlo&rsquo;s
-              authenticated gateway to the{" "}
-              <strong className="text-creamInk">VocoFlo speech detection model</strong> for
-              verbatim transcription, optional tentative moment markers, and Coco&rsquo;s reply.
-            </li>
+            {isGuestMode ? (
+              <li>
+                <strong className="text-creamInk">Guest Mode simulation only:</strong> In Guest
+                Review Mode, audio is never sent to VocoFlo AI or Firestore. Optional speech
+                observations and Coco responses are simulated locally in your browser.
+              </li>
+            ) : (
+              <li>
+                <strong className="text-creamInk">Transient speech processing:</strong> When you
+                submit a recording, audio bytes are sent over encrypted HTTPS through VocoFlo&rsquo;s
+                authenticated gateway to the{" "}
+                <strong className="text-creamInk">VocoFlo speech detection model</strong> for
+                verbatim transcription, optional tentative moment markers, and Coco&rsquo;s reply.
+              </li>
+            )}
             <li>
               <strong className="text-creamInk">Your control:</strong> You can disable
               acoustic analysis per clip, use &ldquo;Type Instead&rdquo; at any step, or revoke
