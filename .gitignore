@@ -30,3 +30,8 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# developer-only autonomous QA browser profile & private reports
+/.qa-browser-profile
+/qa-reports
+
