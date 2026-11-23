@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { onAuthStateChanged, signInWithPopup, type User } from "firebase/auth";
 import { callTrustedAiGateway, type GatewayCallResult } from "@/lib/ai/gateway-client";
 import { COCO_SYSTEM_INSTRUCTION } from "@/lib/ai/coco-prompts";
 import { blobToBase64, MAX_WEB_AUDIO_UPLOAD_BYTES, pickSupportedAudioMimeType } from "@/lib/audio/recorder";
-import { ensureWebAppCheck, getFirebaseClientAuth, getGoogleProvider, getWebAppCheckToken } from "@/lib/firebase/client";
+import { ensureWebAppCheck, getFirebaseClientAuth, getGoogleProvider } from "@/lib/firebase/client";
 
 type AuditRecord = {
   kind: "coaching" | "speech_analysis";
@@ -239,7 +240,7 @@ export default function LiveCocoAuditPage() {
     <main className="min-h-screen bg-[#0b221c] px-4 py-10 text-[#f1eedf]">
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <a href="/" className="text-sm text-[#91d1b4]">← VocoFlo Test Harness</a>
+          <Link href="/" className="text-sm text-[#91d1b4]">← VocoFlo Test Harness</Link>
           <h1 className="mt-4 text-3xl font-semibold">Real Coco · Independent Evaluation</h1>
           <p className="mt-2 text-sm text-[#c3d4c7]">This runs the real Gemini AI gateway using your existing Google account. No Guest Mode, synthetic answers, fake speech events or new account required. It does not modify the Android app.</p>
         </div>
